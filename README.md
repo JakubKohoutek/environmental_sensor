@@ -82,9 +82,10 @@ The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the
 - Returns to idle after 60 seconds of no motion
 
 ### Low Battery Mode (< 3.5V)
-- Skips WiFi and sensor reads to conserve remaining power
-- Shows a full-screen "Low battery!" warning on the OLED with a large crossed-out battery icon and current voltage
-- Sleeps for 60 seconds between checks
+- Skips WiFi, sensor reads, and active mode — all non-essential power draws are disabled
+- Keeps waking every 3s to check the PIR so motion is still registered
+- While motion is present, the full-screen "Low battery!" warning (large crossed-out battery icon + voltage) flashes — shown on one wake, hidden on the next, alternating for as long as the PIR keeps triggering
+- When motion stops the display is cleared and the device just cycles PIR checks silently
 
 ### Features
 - **Sea-level pressure**: raw BMP180 reading adjusted for 235m station altitude

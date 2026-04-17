@@ -43,10 +43,10 @@ This is an Arduino IDE project targeting ESP8266. The sketch is `environmental_s
 - When PIR quiet for 60s: publishes motion OFF, clears display, enters idle mode
 
 **Low battery mode** (< 3.5V):
-- Skips WiFi and sensors entirely
-- Shows a full-screen "Low battery!" warning on the OLED with a large crossed-out battery icon and current voltage for ~3s, then powers the display down so it doesn't stay lit across the 60s sleep or bleed into subsequent idle wakes if the battery recovers
-- Sleeps for 60 seconds between checks
-- Battery ADC is averaged over 8 samples to avoid spurious low reads near the threshold
+- Skips WiFi, sensor reads, and active mode — the device still wakes every 3s (same interval as idle mode) to check the PIR so motion is detected promptly
+- While PIR is HIGH, the full-screen "Low battery!" warning (large crossed-out battery icon + voltage) flashes by toggling on every wake: shown one cycle (~3s), hidden the next, repeating for as long as motion is held
+- `rtcState.lowBatteryWarningShown` holds the flash state across deep-sleep wakes; when PIR drops LOW the display is cleared and the flag reset so the next motion event starts the cycle from "shown"
+- Battery ADC is averaged over 8 samples to avoid a single noisy read tripping the 3.5V threshold
 
 ### Safety
 - **Watchdog timer**: 8-second hardware WDT enabled. Fed explicitly in WiFi connect and active mode loops.
@@ -82,7 +82,8 @@ State persisted across deep sleep cycles via `RtcState` struct:
 - Last published values for adaptive publish
 - Trend history circular buffer (5 entries)
 - Discovery published flag
-- Magic number for validity check (0xE5A70003)
+- Low-battery warning flash state (toggled each wake while PIR HIGH)
+- Magic number for validity check (0xE5A70004)
 
 ### Modules
 - **`sensors.h/cpp`**: DHT22 + BMP180 reading with temperature offset, humidity calibration (linear + Magnus), sea-level pressure calculation (235m altitude), Zambretti weather forecast. Shared `SensorData` struct. DHT22 read retries once after a 2.1s delay if the first attempt returns NaN (covers the cold-boot stabilization window).

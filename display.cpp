@@ -42,8 +42,9 @@ void drawCentered(int xStart, int width, int y, const char* str) {
 void showLowBatteryWarning(float batteryVoltage) {
     display.clearBuffer();
 
-    // Large battery body — 70x26 centered at top half
-    int bx = 22;
+    // Large battery body — 70x26 horizontally centered (including the 4px
+    // terminal, so overall icon width is 74 → x = (128 - 74) / 2 = 27).
+    int bx = 27;
     int by = 4;
     int bw = 70;
     int bh = 26;

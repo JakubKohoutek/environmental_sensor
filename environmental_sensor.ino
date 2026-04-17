@@ -8,9 +8,10 @@
 // Trend direction (used internally for Zambretti forecast)
 enum Trend { TREND_STABLE, TREND_UP, TREND_DOWN };
 
-// Deep sleep interval for idle mode (seconds)
+// Deep sleep interval for idle mode (seconds). Low-battery mode uses the
+// same interval so PIR motion is still detected promptly — WiFi and
+// sensor reads are skipped there, so the extra wakes cost very little.
 #define IDLE_SLEEP_SECONDS   3
-#define LOW_BATT_SLEEP_SECONDS 60
 
 // Full sensor/MQTT cycle interval in idle mode (in wake counts)
 #define FULL_CYCLE_INTERVAL  20   // ~60s at 3s sleep
@@ -82,10 +83,14 @@ struct RtcState {
     uint32_t historyCount;
     // MQTT discovery
     uint32_t discoveryPublished;
+    // Low-battery warning flash state — toggled each wake while PIR is HIGH
+    // so the warning blinks (shown one cycle, hidden the next). Cleared
+    // back to 0 whenever PIR returns LOW so the display goes dark.
+    uint32_t lowBatteryWarningShown;
     uint32_t magic;
 };
 
-#define RTC_MAGIC 0xE5A70003
+#define RTC_MAGIC 0xE5A70004
 #define RTC_ADDR  0
 
 const char* ssid     = STASSID;
@@ -396,17 +401,32 @@ void saveAndSleep(uint32_t seconds) {
 // ── Low battery mode ──────────────────────────────────────────────
 
 void lowBatteryMode() {
-    Serial.println("[BATT] LOW — skipping WiFi, sleeping " + String(LOW_BATT_SLEEP_SECONDS) + "s");
+    bool pirHigh = digitalRead(PIR_PIN) == HIGH;
 
-    // Show the warning briefly, then power-save the display so it doesn't
-    // stay lit across the 60s sleep or leak into a later idle wake after
-    // the battery recovers above VBAT_LOW.
-    initiateDisplay();
-    showLowBatteryWarning(rtcState.batteryVoltage);
-    delay(3000);
-    clearDisplay();
+    if (pirHigh) {
+        // While motion is held, flash the warning: show it on one wake,
+        // hide it on the next. The OLED retains whatever we last sent to
+        // it across the deep-sleep interval, so no on-CPU delay is needed.
+        if (rtcState.lowBatteryWarningShown) {
+            clearDisplay();
+            rtcState.lowBatteryWarningShown = 0;
+        } else {
+            initiateDisplay();
+            showLowBatteryWarning(rtcState.batteryVoltage);
+            rtcState.lowBatteryWarningShown = 1;
+        }
+    } else if (rtcState.lowBatteryWarningShown) {
+        // Motion ended — turn the display off and reset the flash state
+        // so the next motion event starts the cycle from "shown".
+        clearDisplay();
+        rtcState.lowBatteryWarningShown = 0;
+    }
 
-    saveAndSleep(LOW_BATT_SLEEP_SECONDS);
+    Serial.println("[BATT] LOW " + String(rtcState.batteryVoltage, 2) +
+                   "V — PIR " + (pirHigh ? "HIGH" : "LOW") +
+                   ", warning " + (rtcState.lowBatteryWarningShown ? "ON" : "OFF"));
+
+    saveAndSleep(IDLE_SLEEP_SECONDS);
 }
 
 // ── Active mode ───────────────────────────────────────────────────
