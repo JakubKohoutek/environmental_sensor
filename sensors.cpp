@@ -38,7 +38,7 @@ float compensateHumidityForTemp(float rawHumidity, float rawTemp, float correcte
 // Linear humidity calibration anchored at 100%.
 // Calibration point: raw 65.8% = actual 53.2%
 // Formula: actual = 100 - (100 - raw) * HUMIDITY_CAL_FACTOR
-#define HUMIDITY_CAL_FACTOR  1.225  // (100 - 43) / (100 - 53.48)
+#define HUMIDITY_CAL_FACTOR  1.269  // (100 - 43) / (100 - 55.07)
 
 float calibrateHumidity(float humidity) {
     float calibrated = 100.0 - (100.0 - humidity) * HUMIDITY_CAL_FACTOR;
@@ -54,34 +54,34 @@ float toSeaLevelPressure(float stationPressure) {
 
 // Zambretti weather forecast algorithm
 // Uses sea-level pressure and trend to predict weather
-// Returns a short string suitable for small OLED display
+// Returns a short Czech string suitable for small OLED display
 // All strings must fit in 64px at 7x13B font (max 9 chars)
 const char* zambretti(float p, int trend) {
     if (trend > 0) {
         // Rising pressure — weather improving
-        if (p > 1030) return "Settled";
-        if (p > 1022) return "Fine";
-        if (p > 1012) return "Fair";
-        if (p > 1003) return "Clearing";
-        if (p >  993) return "Showers";
-        return "Rain soon";
+        if (p > 1030) return "Ustaleno";
+        if (p > 1022) return "Jasno";
+        if (p > 1012) return "Pekne";
+        if (p > 1003) return "Vyjasni";
+        if (p >  993) return "Prehanky";
+        return "Brzy dest";
     }
     if (trend < 0) {
         // Falling pressure — weather deteriorating
-        if (p > 1030) return "Fair";
-        if (p > 1022) return "Unsettled";
-        if (p > 1012) return "Rain soon";
-        if (p > 1003) return "Rain";
-        if (p >  993) return "Stormy";
-        return "Storm!";
+        if (p > 1030) return "Pekne";
+        if (p > 1022) return "Nestale";
+        if (p > 1012) return "Brzy dest";
+        if (p > 1003) return "Dest";
+        if (p >  993) return "Bourky";
+        return "Boure!";
     }
     // Steady pressure
-    if (p > 1030) return "Fine";
-    if (p > 1022) return "Fair";
+    if (p > 1030) return "Jasno";
+    if (p > 1022) return "Pekne";
     if (p > 1012) return "OK";
-    if (p > 1003) return "Showers";
-    if (p >  993) return "Rain";
-    return "Stormy";
+    if (p > 1003) return "Prehanky";
+    if (p >  993) return "Dest";
+    return "Bourky";
 }
 
 void readSensors(float tempOffset) {

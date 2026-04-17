@@ -21,7 +21,7 @@ enum Trend { TREND_STABLE, TREND_UP, TREND_DOWN };
 #define SENSOR_INTERVAL_MS   15000 // Read sensors every 15s while active
 
 // Temperature calibration offset
-#define TEMP_OFFSET          0.9
+#define TEMP_OFFSET          1.0  // °C to subtract from DHT22 reading (calibration)
 
 // WiFi
 #define WIFI_TIMEOUT_MS      5000

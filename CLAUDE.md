@@ -61,7 +61,7 @@ This is an Arduino IDE project targeting ESP8266. The sketch is `environmental_s
 - **Temperature offset**: 0.9°C subtracted from raw readings (ESP8266 self-heating)
 - **Humidity calibration**: linear correction anchored at 100% — `actual = 100 - (100 - raw) * 1.225`
 - **Sea-level pressure**: station pressure adjusted for 235m altitude using barometric formula
-- **Zambretti forecast**: weather prediction based on sea-level pressure and trend (displayed on OLED, e.g., "Fine", "Rain likely", "Stormy")
+- **Zambretti forecast**: weather prediction based on sea-level pressure and trend using short Czech OLED labels (e.g., "Jasno", "Brzy dest", "Bourky")
 
 ### Trend tracking
 - Circular buffer of last 5 readings stored in RTC memory
