@@ -5,6 +5,9 @@
 #include "display.h"
 #include "mqtt.h"
 
+// Trend direction (used internally for Zambretti forecast)
+enum Trend { TREND_STABLE, TREND_UP, TREND_DOWN };
+
 // Deep sleep interval for idle mode (seconds)
 #define IDLE_SLEEP_SECONDS   3
 #define LOW_BATT_SLEEP_SECONDS 60
@@ -353,8 +356,6 @@ void fullSensorCycle() {
     recordHistory();
 }
 
-Trend tempTrend()  { return getTrend(rtcState.tempHistory, rtcState.historyCount, rtcState.historyIndex, TREND_TEMP_THRESHOLD); }
-Trend humTrend()   { return getTrend(rtcState.humHistory,  rtcState.historyCount, rtcState.historyIndex, TREND_HUM_THRESHOLD); }
 Trend presTrend()  { return getTrend(rtcState.presHistory, rtcState.historyCount, rtcState.historyIndex, TREND_PRES_THRESHOLD); }
 
 int presTrendInt() {
@@ -404,7 +405,7 @@ void activeMode() {
 
     fullSensorCycle();
     initiateDisplay();
-    updateDisplay(rtcState.batteryVoltage, forecast(), tempTrend(), humTrend(), presTrend());
+    updateDisplay(rtcState.batteryVoltage, forecast());
 
     publishCycle(true);
 
@@ -429,7 +430,7 @@ void activeMode() {
             readSensors(TEMP_OFFSET);
             cacheToRtc();
             recordHistory();
-            updateDisplay(rtcState.batteryVoltage, forecast(), tempTrend(), humTrend(), presTrend());
+            updateDisplay(rtcState.batteryVoltage, forecast());
         }
 
         // Periodic publish (WiFi on/off)
@@ -439,7 +440,7 @@ void activeMode() {
             readSensors(TEMP_OFFSET);
             cacheToRtc();
             recordHistory();
-            updateDisplay(rtcState.batteryVoltage, forecast(), tempTrend(), humTrend(), presTrend());
+            updateDisplay(rtcState.batteryVoltage, forecast());
             publishCycle(true);
         }
 

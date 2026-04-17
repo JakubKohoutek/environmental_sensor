@@ -55,29 +55,30 @@ float toSeaLevelPressure(float stationPressure) {
 // Zambretti weather forecast algorithm
 // Uses sea-level pressure and trend to predict weather
 // Returns a short string suitable for small OLED display
+// All strings must fit in 64px at 7x13B font (max 9 chars)
 const char* zambretti(float p, int trend) {
     if (trend > 0) {
         // Rising pressure — weather improving
         if (p > 1030) return "Settled";
         if (p > 1022) return "Fine";
         if (p > 1012) return "Fair";
-        if (p > 1003) return "Improving";
+        if (p > 1003) return "Clearing";
         if (p >  993) return "Showers";
-        return "Rain likely";
+        return "Rain soon";
     }
     if (trend < 0) {
         // Falling pressure — weather deteriorating
         if (p > 1030) return "Fair";
-        if (p > 1022) return "Change due";
-        if (p > 1012) return "Rain likely";
+        if (p > 1022) return "Unsettled";
+        if (p > 1012) return "Rain soon";
         if (p > 1003) return "Rain";
         if (p >  993) return "Stormy";
-        return "Very stormy";
+        return "Storm!";
     }
     // Steady pressure
     if (p > 1030) return "Fine";
     if (p > 1022) return "Fair";
-    if (p > 1012) return "Mostly fair";
+    if (p > 1012) return "OK";
     if (p > 1003) return "Showers";
     if (p >  993) return "Rain";
     return "Stormy";
