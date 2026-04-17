@@ -35,13 +35,28 @@ void drawBatteryIcon(int x, int y, float voltage) {
     }
 }
 
+// Draw a small trend arrow (5x5) at position
+void drawTrend(int x, int y, Trend trend) {
+    if (trend == TREND_UP) {
+        // Up triangle
+        display.drawTriangle(x + 2, y, x, y + 4, x + 4, y + 4);
+    } else if (trend == TREND_DOWN) {
+        // Down triangle
+        display.drawTriangle(x, y, x + 4, y, x + 2, y + 4);
+    } else {
+        // Stable: horizontal line with right arrow
+        display.drawHLine(x, y + 2, 4);
+        display.drawTriangle(x + 3, y, x + 3, y + 4, x + 5, y + 2);
+    }
+}
+
 // Center a string horizontally within a region [xStart, xStart+width)
 void drawCentered(int xStart, int width, int y, const char* str) {
     int sw = display.getStrWidth(str);
     display.drawStr(xStart + (width - sw) / 2, y, str);
 }
 
-void updateDisplay(float batteryVoltage) {
+void updateDisplay(float batteryVoltage, Trend tempTrend, Trend humTrend, Trend presTrend) {
     display.clearBuffer();
 
     // Layout: two columns (0-63, 65-127), top half 0-41, bottom half 43-63
@@ -64,7 +79,13 @@ void updateDisplay(float batteryVoltage) {
     } else {
         snprintf(val, sizeof(val), "--.-");
     }
-    drawCentered(0, 64, 36, val);
+    int tw = display.getStrWidth(val);
+    int tx = (64 - tw) / 2 - 3; // Shift left slightly to make room for arrow
+    display.drawStr(tx, 36, val);
+    // Trend arrow to the right of value
+    if (sensorData.dhtOk) {
+        drawTrend(tx + tw + 2, 24, tempTrend);
+    }
 
     // ── Humidity — top right (65-127) ──
     // Header
@@ -82,19 +103,28 @@ void updateDisplay(float batteryVoltage) {
     } else {
         snprintf(val, sizeof(val), "--.-");
     }
-    drawCentered(65, 63, 36, val);
+    int hw = display.getStrWidth(val);
+    int hx = 65 + (63 - hw) / 2 - 3;
+    display.drawStr(hx, 36, val);
+    if (sensorData.dhtOk) {
+        drawTrend(hx + hw + 2, 24, humTrend);
+    }
 
     // ── Pressure — bottom left (0-63) ──
     display.setFont(u8g2_font_7x13B_tf);
     if (sensorData.bmpOk) {
-        snprintf(val, sizeof(val), "%s %.0f", "hPa", sensorData.pressure);
+        snprintf(val, sizeof(val), "%.0f hPa", sensorData.seaLevelPressure);
     } else {
-        snprintf(val, sizeof(val), "hPa ----");
+        snprintf(val, sizeof(val), "---- hPa");
     }
-    drawCentered(0, 64, 57, val);
+    int pw = display.getStrWidth(val);
+    int px = (64 - pw) / 2 - 3;
+    display.drawStr(px, 57, val);
+    if (sensorData.bmpOk) {
+        drawTrend(px + pw + 2, 50, presTrend);
+    }
 
     // ── Battery — bottom right (65-127) ──
-    // Battery icon + voltage text, vertically centered in bottom row
     snprintf(val, sizeof(val), "%.2fV", batteryVoltage);
     display.setFont(u8g2_font_6x10_tf);
     int vw = display.getStrWidth(val);

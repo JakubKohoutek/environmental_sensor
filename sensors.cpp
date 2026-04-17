@@ -7,10 +7,13 @@
 #define DHT_PIN   D5
 #define DHT_TYPE  DHT22
 
+// Station altitude for sea-level pressure calculation
+#define STATION_ALTITUDE_M  235.0
+
 DHT dht(DHT_PIN, DHT_TYPE);
 Adafruit_BMP085 bmp;
 
-SensorData sensorData = {0, 0, 0, 0, 0, false, false};
+SensorData sensorData = {0, 0, 0, 0, 0, 0, false, false};
 
 void initiateSensors() {
     dht.begin();
@@ -44,6 +47,11 @@ float calibrateHumidity(float humidity) {
     return calibrated;
 }
 
+// Convert station pressure to sea-level pressure using barometric formula
+float toSeaLevelPressure(float stationPressure) {
+    return stationPressure / pow(1.0 - (STATION_ALTITUDE_M / 44330.0), 5.255);
+}
+
 void readSensors(float tempOffset) {
     // Read DHT22
     float h = dht.readHumidity();
@@ -66,9 +74,12 @@ void readSensors(float tempOffset) {
 
     // Read BMP180
     if (sensorData.bmpOk) {
-        sensorData.bmpTemp  = bmp.readTemperature() - tempOffset;
-        sensorData.pressure = bmp.readPressure() / 100.0; // Pa -> hPa
-        sensorData.altitude = bmp.readAltitude();
-        Serial.println("[BMP180] T:" + String(sensorData.bmpTemp, 1) + "C P:" + String(sensorData.pressure, 1) + "hPa");
+        sensorData.bmpTemp          = bmp.readTemperature() - tempOffset;
+        sensorData.pressure         = bmp.readPressure() / 100.0; // Pa -> hPa
+        sensorData.seaLevelPressure = toSeaLevelPressure(sensorData.pressure);
+        sensorData.altitude         = bmp.readAltitude();
+        Serial.println("[BMP180] T:" + String(sensorData.bmpTemp, 1) +
+                       "C P:" + String(sensorData.pressure, 1) +
+                       "hPa sea:" + String(sensorData.seaLevelPressure, 1) + "hPa");
     }
 }

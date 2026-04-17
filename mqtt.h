@@ -10,12 +10,13 @@
 #define MQTT_AVAILABLE_TOPIC  MQTT_BASE_TOPIC "/available"
 #define MQTT_EVENT_TOPIC      MQTT_BASE_TOPIC "/event"
 
-#define MQTT_TEMPERATURE_TOPIC  MQTT_BASE_TOPIC "/temperature"
-#define MQTT_HUMIDITY_TOPIC     MQTT_BASE_TOPIC "/humidity"
-#define MQTT_PRESSURE_TOPIC     MQTT_BASE_TOPIC "/pressure"
-#define MQTT_ALTITUDE_TOPIC     MQTT_BASE_TOPIC "/altitude"
-#define MQTT_BATTERY_TOPIC      MQTT_BASE_TOPIC "/battery"
-#define MQTT_MOTION_TOPIC       MQTT_BASE_TOPIC "/motion"
+#define MQTT_TEMPERATURE_TOPIC    MQTT_BASE_TOPIC "/temperature"
+#define MQTT_HUMIDITY_TOPIC       MQTT_BASE_TOPIC "/humidity"
+#define MQTT_PRESSURE_TOPIC       MQTT_BASE_TOPIC "/pressure"
+#define MQTT_SEA_PRESSURE_TOPIC   MQTT_BASE_TOPIC "/sea_level_pressure"
+#define MQTT_ALTITUDE_TOPIC       MQTT_BASE_TOPIC "/altitude"
+#define MQTT_BATTERY_TOPIC        MQTT_BASE_TOPIC "/battery"
+#define MQTT_MOTION_TOPIC         MQTT_BASE_TOPIC "/motion"
 
 extern WiFiClient wifiClient;
 extern PubSubClient mqttClient;

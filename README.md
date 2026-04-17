@@ -1,6 +1,6 @@
 # Environmental Sensor
 
-Battery-powered environmental monitoring station built on a Wemos D1 Mini (ESP8266). Measures temperature, humidity, barometric pressure, and detects motion. Uses deep sleep for long battery life, waking briefly to check sensors and publish data via MQTT for Home Assistant integration. A 1.3" OLED display shows live readings when motion is detected.
+Battery-powered environmental monitoring station built on a Wemos D1 Mini (ESP8266). Measures temperature, humidity, barometric pressure (sea-level adjusted), and detects motion. Uses deep sleep for long battery life, waking briefly to check sensors and publish data via MQTT with Home Assistant auto-discovery. A 1.3" OLED display with trend arrows shows live readings when motion is detected.
 
 ## Hardware
 
@@ -13,21 +13,21 @@ Battery-powered environmental monitoring station built on a Wemos D1 Mini (ESP82
 
 ### Wiring
 
-| Component     | Pin  | Wemos D1 Mini | GPIO | Notes                        |
-|---------------|------|---------------|------|------------------------------|
-| Deep sleep    | D0   | RST           | 16   | Required for wake from sleep |
-| BMP180        | SCL  | D1            | 5    | I2C clock (shared bus)       |
-| BMP180        | SDA  | D2            | 4    | I2C data (shared bus)        |
-| OLED          | SCL  | D1            | 5    | I2C clock (shared bus)       |
-| OLED          | SDA  | D2            | 4    | I2C data (shared bus)        |
-| DHT22         | DATA | D5            | 14   |                              |
-| PIR sensor    | OUT  | D6            | 12   |                              |
-| Battery (via 100kΩ) | +  | A0       |      | Voltage monitoring           |
+| Component          | Pin  | Wemos D1 Mini | GPIO | Notes                        |
+|--------------------|------|---------------|------|------------------------------|
+| Deep sleep         | D0   | RST           | 16   | Required for wake from sleep |
+| BMP180             | SCL  | D1            | 5    | I2C clock (shared bus)       |
+| BMP180             | SDA  | D2            | 4    | I2C data (shared bus)        |
+| OLED               | SCL  | D1            | 5    | I2C clock (shared bus)       |
+| OLED               | SDA  | D2            | 4    | I2C data (shared bus)        |
+| DHT22              | DATA | D5            | 14   |                              |
+| PIR sensor         | OUT  | D6            | 12   |                              |
+| Battery (via 100kΩ)| +    | A0            |      | Voltage monitoring           |
 
 - BMP180 and OLED share the I2C bus on D1/D2
 - Power all sensors from 3.3V (HT7330 LDO output)
 - D0 must be wired to RST for deep sleep wake
-- 100kΩ resistor from battery+ to A0 for voltage monitoring (uses onboard 220k+100k divider)
+- 100kΩ resistor from battery+ to A0 for voltage monitoring
 
 ### Power Supply
 
@@ -37,7 +37,7 @@ Battery-powered environmental monitoring station built on a Wemos D1 Mini (ESP82
 18650 Battery (-) ──→ GND
 ```
 
-The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the regulator cannot maintain output and the device becomes unstable — the battery icon reflects this as the empty threshold.
+The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the device enters low battery mode — skipping WiFi and sleeping for 60 seconds between checks.
 
 ## Setup
 
@@ -68,31 +68,31 @@ The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the
 
 ## How It Works
 
-The device operates in two modes:
-
 ### Idle Mode (no motion)
 - Deep sleeps for 3 seconds, wakes, checks the PIR sensor
 - Every ~60 seconds: reads all sensors, connects WiFi, publishes MQTT, disconnects
+- **Adaptive publishing**: skips MQTT if values haven't changed significantly, saving WiFi energy. Forces publish after 5 skipped cycles (~5 minutes).
 - Display is off, WiFi is off between publishes
-- Battery consumption: ~2-3mA average
 
 ### Active Mode (motion detected)
-- Stays fully awake — OLED display shows live readings
+- Stays fully awake — OLED display shows live readings with **trend arrows** (↑↓→)
 - Sensors read every 15 seconds, display updated
 - WiFi connects every 30 seconds for MQTT publish, disconnects immediately
 - LED blinks on initial motion detection
 - Returns to idle after 60 seconds of no motion
 
-### Power Optimizations
-- WiFi fast connect: caches router BSSID/channel in RTC memory (~1s vs ~3s)
-- Reduced WiFi TX power (10 dBm)
-- WiFi completely off when not publishing
-- 3-second idle sleep balances PIR response vs. battery life
+### Low Battery Mode (< 3.5V)
+- Skips WiFi and sensor reads to conserve remaining power
+- Shows warning on OLED display
+- Sleeps for 60 seconds between checks
 
-### Sensor Calibration
-Temperature and humidity readings are calibrated:
-- Temperature: 0.9°C offset subtracted (ESP8266 self-heating compensation)
-- Humidity: linear calibration anchored at 100%, compensating for DHT22 sensor drift
+### Features
+- **Sea-level pressure**: raw BMP180 reading adjusted for 235m station altitude
+- **Trend arrows**: compares last 5 readings to show rising/falling/stable trends on the display
+- **MQTT auto-discovery**: Home Assistant sensors appear automatically, no manual YAML needed
+- **Watchdog timer**: 8-second hardware WDT prevents hangs
+- **WiFi fast connect**: caches router BSSID/channel for ~1s connection time
+- **Sensor calibration**: temperature offset (0.9°C) and humidity linear correction
 
 ## MQTT Topics
 
@@ -100,81 +100,30 @@ Temperature and humidity readings are calibrated:
 |-------|-----------|-------------|
 | `environmental_sensor/temperature` | Publish | Temperature in °C |
 | `environmental_sensor/humidity` | Publish | Relative humidity in % |
-| `environmental_sensor/pressure` | Publish | Pressure in hPa |
+| `environmental_sensor/sea_level_pressure` | Publish | Sea-level pressure in hPa |
 | `environmental_sensor/altitude` | Publish | Altitude in m |
 | `environmental_sensor/battery` | Publish | Battery voltage in V |
 | `environmental_sensor/motion` | Publish | PIR state: ON / OFF |
 | `environmental_sensor/available` | Publish | Online status (LWT) |
 
-## Home Assistant Configuration
+### Home Assistant
 
-Add to `configuration.yaml`:
+Sensors are auto-discovered via MQTT. No manual configuration needed — just ensure the MQTT integration is set up in Home Assistant.
 
-```yaml
-mqtt:
-  sensor:
-    - name: "Environmental Sensor Temperature"
-      state_topic: "environmental_sensor/temperature"
-      unit_of_measurement: "°C"
-      device_class: temperature
-      state_class: measurement
-      availability_topic: "environmental_sensor/available"
-      unique_id: "env_sensor_temperature"
-      device:
-        identifiers: ["environmental_sensor"]
-        name: "Environmental Sensor"
-        manufacturer: "DIY"
-        model: "Wemos D1 Mini + DHT22 + BMP180"
+## Display
 
-    - name: "Environmental Sensor Humidity"
-      state_topic: "environmental_sensor/humidity"
-      unit_of_measurement: "%"
-      device_class: humidity
-      state_class: measurement
-      availability_topic: "environmental_sensor/available"
-      unique_id: "env_sensor_humidity"
-      device:
-        identifiers: ["environmental_sensor"]
+The 1.3" OLED shows a four-quadrant layout:
 
-    - name: "Environmental Sensor Pressure"
-      state_topic: "environmental_sensor/pressure"
-      unit_of_measurement: "hPa"
-      device_class: atmospheric_pressure
-      state_class: measurement
-      availability_topic: "environmental_sensor/available"
-      unique_id: "env_sensor_pressure"
-      device:
-        identifiers: ["environmental_sensor"]
-
-    - name: "Environmental Sensor Altitude"
-      state_topic: "environmental_sensor/altitude"
-      unit_of_measurement: "m"
-      icon: "mdi:altimeter"
-      state_class: measurement
-      availability_topic: "environmental_sensor/available"
-      unique_id: "env_sensor_altitude"
-      device:
-        identifiers: ["environmental_sensor"]
-
-    - name: "Environmental Sensor Battery"
-      state_topic: "environmental_sensor/battery"
-      unit_of_measurement: "V"
-      device_class: voltage
-      state_class: measurement
-      availability_topic: "environmental_sensor/available"
-      unique_id: "env_sensor_battery"
-      device:
-        identifiers: ["environmental_sensor"]
-
-  binary_sensor:
-    - name: "Environmental Sensor Motion"
-      state_topic: "environmental_sensor/motion"
-      payload_on: "ON"
-      payload_off: "OFF"
-      device_class: motion
-      availability_topic: "environmental_sensor/available"
-      unique_id: "env_sensor_motion"
-      off_delay: 30
-      device:
-        identifiers: ["environmental_sensor"]
 ```
+┌──────────────┬──────────────┐
+│  Temp °C     │  Hum %       │
+│     22.9 ↑   │     53.2 →   │
+├──────────────┼──────────────┤
+│  1015 hPa ↓  │ [████] 3.87V │
+└──────────────┴──────────────┘
+```
+
+- **Top left**: Temperature with trend arrow
+- **Top right**: Humidity with trend arrow
+- **Bottom left**: Sea-level pressure with trend arrow
+- **Bottom right**: Battery icon (3.5-4.1V range) with voltage
