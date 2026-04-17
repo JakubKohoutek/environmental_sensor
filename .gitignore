@@ -1,0 +1,17 @@
+# Arduino build artifacts
+*.elf
+*.bin
+*.hex
+*.map
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
