@@ -88,6 +88,7 @@ The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the
 
 ### Features
 - **Sea-level pressure**: raw BMP180 reading adjusted for 235m station altitude
+- **Zambretti forecast**: weather prediction based on pressure value and trend (e.g., "Fine", "Showers", "Stormy")
 - **Trend arrows**: compares last 5 readings to show rising/falling/stable trends on the display
 - **MQTT auto-discovery**: Home Assistant sensors appear automatically, no manual YAML needed
 - **Watchdog timer**: 8-second hardware WDT prevents hangs
@@ -119,11 +120,12 @@ The 1.3" OLED shows a four-quadrant layout:
 │  Temp °C     │  Hum %       │
 │     22.9 ↑   │     53.2 →   │
 ├──────────────┼──────────────┤
-│  1015 hPa ↓  │ [████] 3.87V │
+│ 1015 hPa ↓   │ [████] 3.87V │
+│   Fair        │              │
 └──────────────┴──────────────┘
 ```
 
 - **Top left**: Temperature with trend arrow
 - **Top right**: Humidity with trend arrow
-- **Bottom left**: Sea-level pressure with trend arrow
+- **Bottom left**: Sea-level pressure with trend arrow + Zambretti weather forecast
 - **Bottom right**: Battery icon (3.5-4.1V range) with voltage

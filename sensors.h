@@ -17,4 +17,8 @@ extern SensorData sensorData;
 void initiateSensors();
 void readSensors(float tempOffset = 0.0);
 
+// Zambretti weather forecast based on sea-level pressure and trend
+// trend: 1=rising, 0=steady, -1=falling
+const char* zambretti(float seaLevelPressure, int trend);
+
 #endif // SENSORS_H

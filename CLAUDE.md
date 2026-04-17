@@ -59,8 +59,9 @@ This is an Arduino IDE project targeting ESP8266. The sketch is `environmental_s
 
 ### Sensor calibration
 - **Temperature offset**: 0.9°C subtracted from raw readings (ESP8266 self-heating)
-- **Humidity calibration**: linear correction anchored at 100% — `actual = 100 - (100 - raw) * 1.368`
+- **Humidity calibration**: linear correction anchored at 100% — `actual = 100 - (100 - raw) * 1.225`
 - **Sea-level pressure**: station pressure adjusted for 235m altitude using barometric formula
+- **Zambretti forecast**: weather prediction based on sea-level pressure and trend (displayed on OLED, e.g., "Fine", "Rain likely", "Stormy")
 
 ### Trend tracking
 - Circular buffer of last 5 readings stored in RTC memory
@@ -83,8 +84,8 @@ State persisted across deep sleep cycles via `RtcState` struct:
 - Magic number for validity check (0xE5A70003)
 
 ### Modules
-- **`sensors.h/cpp`**: DHT22 + BMP180 reading with temperature offset, humidity calibration (linear + Magnus), sea-level pressure calculation (235m altitude). Shared `SensorData` struct.
-- **`display.h/cpp`**: 1.3" SH1106 OLED via U8g2. Four-quadrant layout with trend arrows: temp (top-left), humidity (top-right), pressure (bottom-left), battery icon + voltage (bottom-right).
+- **`sensors.h/cpp`**: DHT22 + BMP180 reading with temperature offset, humidity calibration (linear + Magnus), sea-level pressure calculation (235m altitude), Zambretti weather forecast. Shared `SensorData` struct.
+- **`display.h/cpp`**: 1.3" SH1106 OLED via U8g2. Four-quadrant layout with trend arrows: temp (top-left), humidity (top-right), pressure + Zambretti forecast (bottom-left), battery icon + voltage (bottom-right).
 - **`mqtt.h/cpp`**: MQTT topic defines and shared PubSubClient instance.
 
 ### Unused modules (kept from boilerplate, not compiled in)

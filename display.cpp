@@ -56,7 +56,7 @@ void drawCentered(int xStart, int width, int y, const char* str) {
     display.drawStr(xStart + (width - sw) / 2, y, str);
 }
 
-void updateDisplay(float batteryVoltage, Trend tempTrend, Trend humTrend, Trend presTrend) {
+void updateDisplay(float batteryVoltage, const char* forecast, Trend tempTrend, Trend humTrend, Trend presTrend) {
     display.clearBuffer();
 
     // Layout: two columns (0-63, 65-127), top half 0-41, bottom half 43-63
@@ -110,8 +110,8 @@ void updateDisplay(float batteryVoltage, Trend tempTrend, Trend humTrend, Trend 
         drawTrend(hx + hw + 2, 24, humTrend);
     }
 
-    // ── Pressure — bottom left (0-63) ──
-    display.setFont(u8g2_font_7x13B_tf);
+    // ── Pressure + forecast — bottom left (0-63) ──
+    display.setFont(u8g2_font_6x10_tf);
     if (sensorData.bmpOk) {
         snprintf(val, sizeof(val), "%.0f hPa", sensorData.seaLevelPressure);
     } else {
@@ -119,9 +119,13 @@ void updateDisplay(float batteryVoltage, Trend tempTrend, Trend humTrend, Trend 
     }
     int pw = display.getStrWidth(val);
     int px = (64 - pw) / 2 - 3;
-    display.drawStr(px, 57, val);
+    display.drawStr(px, 52, val);
     if (sensorData.bmpOk) {
-        drawTrend(px + pw + 2, 50, presTrend);
+        drawTrend(px + pw + 2, 45, presTrend);
+    }
+    // Forecast text below pressure
+    if (forecast[0] != '\0') {
+        drawCentered(0, 64, 63, forecast);
     }
 
     // ── Battery — bottom right (65-127) ──

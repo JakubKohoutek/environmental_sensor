@@ -38,7 +38,7 @@ float compensateHumidityForTemp(float rawHumidity, float rawTemp, float correcte
 // Linear humidity calibration anchored at 100%.
 // Calibration point: raw 65.8% = actual 53.2%
 // Formula: actual = 100 - (100 - raw) * HUMIDITY_CAL_FACTOR
-#define HUMIDITY_CAL_FACTOR  1.368  // (100 - 53.2) / (100 - 65.8)
+#define HUMIDITY_CAL_FACTOR  1.225  // (100 - 43) / (100 - 53.48)
 
 float calibrateHumidity(float humidity) {
     float calibrated = 100.0 - (100.0 - humidity) * HUMIDITY_CAL_FACTOR;
@@ -50,6 +50,37 @@ float calibrateHumidity(float humidity) {
 // Convert station pressure to sea-level pressure using barometric formula
 float toSeaLevelPressure(float stationPressure) {
     return stationPressure / pow(1.0 - (STATION_ALTITUDE_M / 44330.0), 5.255);
+}
+
+// Zambretti weather forecast algorithm
+// Uses sea-level pressure and trend to predict weather
+// Returns a short string suitable for small OLED display
+const char* zambretti(float p, int trend) {
+    if (trend > 0) {
+        // Rising pressure — weather improving
+        if (p > 1030) return "Settled";
+        if (p > 1022) return "Fine";
+        if (p > 1012) return "Fair";
+        if (p > 1003) return "Improving";
+        if (p >  993) return "Showers";
+        return "Rain likely";
+    }
+    if (trend < 0) {
+        // Falling pressure — weather deteriorating
+        if (p > 1030) return "Fair";
+        if (p > 1022) return "Change due";
+        if (p > 1012) return "Rain likely";
+        if (p > 1003) return "Rain";
+        if (p >  993) return "Stormy";
+        return "Very stormy";
+    }
+    // Steady pressure
+    if (p > 1030) return "Fine";
+    if (p > 1022) return "Fair";
+    if (p > 1012) return "Mostly fair";
+    if (p > 1003) return "Showers";
+    if (p >  993) return "Rain";
+    return "Stormy";
 }
 
 void readSensors(float tempOffset) {

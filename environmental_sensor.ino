@@ -357,6 +357,17 @@ Trend tempTrend()  { return getTrend(rtcState.tempHistory, rtcState.historyCount
 Trend humTrend()   { return getTrend(rtcState.humHistory,  rtcState.historyCount, rtcState.historyIndex, TREND_HUM_THRESHOLD); }
 Trend presTrend()  { return getTrend(rtcState.presHistory, rtcState.historyCount, rtcState.historyIndex, TREND_PRES_THRESHOLD); }
 
+int presTrendInt() {
+    Trend t = presTrend();
+    if (t == TREND_UP) return 1;
+    if (t == TREND_DOWN) return -1;
+    return 0;
+}
+
+const char* forecast() {
+    return zambretti(rtcState.seaLevelPressure, presTrendInt());
+}
+
 void publishCycle(bool motionOn) {
     connectWiFi();
     publishSensorData(motionOn);
@@ -393,7 +404,7 @@ void activeMode() {
 
     fullSensorCycle();
     initiateDisplay();
-    updateDisplay(rtcState.batteryVoltage, tempTrend(), humTrend(), presTrend());
+    updateDisplay(rtcState.batteryVoltage, forecast(), tempTrend(), humTrend(), presTrend());
 
     publishCycle(true);
 
@@ -418,7 +429,7 @@ void activeMode() {
             readSensors(TEMP_OFFSET);
             cacheToRtc();
             recordHistory();
-            updateDisplay(rtcState.batteryVoltage, tempTrend(), humTrend(), presTrend());
+            updateDisplay(rtcState.batteryVoltage, forecast(), tempTrend(), humTrend(), presTrend());
         }
 
         // Periodic publish (WiFi on/off)
@@ -428,7 +439,7 @@ void activeMode() {
             readSensors(TEMP_OFFSET);
             cacheToRtc();
             recordHistory();
-            updateDisplay(rtcState.batteryVoltage, tempTrend(), humTrend(), presTrend());
+            updateDisplay(rtcState.batteryVoltage, forecast(), tempTrend(), humTrend(), presTrend());
             publishCycle(true);
         }
 
