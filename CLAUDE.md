@@ -32,7 +32,7 @@ This is an Arduino IDE project targeting ESP8266. The sketch is `environmental_s
 **Idle mode** (no motion):
 - Deep sleep 3s → wake → check PIR on D6 → sleep
 - Every 20 wakes (~60s): full sensor read + WiFi fast connect + MQTT publish → sleep
-- Adaptive publish: skips MQTT if values haven't changed significantly (thresholds: ±0.2°C temp, ±1% hum, ±0.5hPa pressure, ±0.05V battery). Forces publish after 5 skipped cycles.
+- Adaptive publish: skips MQTT if values haven't changed significantly (thresholds: ±0.2°C temp, ±1% hum, ±0.1hPa pressure, ±0.05V battery). Forces publish after 5 skipped cycles. Pressure threshold matches the published precision so even small but meaningful changes are reported.
 - Display off, WiFi off between publishes
 
 **Active mode** (PIR triggered):
@@ -44,8 +44,9 @@ This is an Arduino IDE project targeting ESP8266. The sketch is `environmental_s
 
 **Low battery mode** (< 3.5V):
 - Skips WiFi and sensors entirely
-- Shows low battery warning on OLED
+- Shows a full-screen "Low battery!" warning on the OLED with a large crossed-out battery icon and current voltage for ~3s, then powers the display down so it doesn't stay lit across the 60s sleep or bleed into subsequent idle wakes if the battery recovers
 - Sleeps for 60 seconds between checks
+- Battery ADC is averaged over 8 samples to avoid spurious low reads near the threshold
 
 ### Safety
 - **Watchdog timer**: 8-second hardware WDT enabled. Fed explicitly in WiFi connect and active mode loops.
@@ -84,8 +85,8 @@ State persisted across deep sleep cycles via `RtcState` struct:
 - Magic number for validity check (0xE5A70003)
 
 ### Modules
-- **`sensors.h/cpp`**: DHT22 + BMP180 reading with temperature offset, humidity calibration (linear + Magnus), sea-level pressure calculation (235m altitude), Zambretti weather forecast. Shared `SensorData` struct.
-- **`display.h/cpp`**: 1.3" SH1106 OLED via U8g2. Four-quadrant layout with trend arrows: temp (top-left), humidity (top-right), pressure + Zambretti forecast (bottom-left), battery icon + voltage (bottom-right).
+- **`sensors.h/cpp`**: DHT22 + BMP180 reading with temperature offset, humidity calibration (linear + Magnus), sea-level pressure calculation (235m altitude), Zambretti weather forecast. Shared `SensorData` struct. DHT22 read retries once after a 2.1s delay if the first attempt returns NaN (covers the cold-boot stabilization window).
+- **`display.h/cpp`**: 1.3" SH1106 OLED via U8g2. Four-quadrant layout: temp (top-left), humidity (top-right), Zambretti forecast (bottom-left), battery icon + voltage (bottom-right). Dedicated full-screen low-battery warning view (crossed-out battery icon + voltage).
 - **`mqtt.h/cpp`**: MQTT topic defines and shared PubSubClient instance.
 
 ### Unused modules (kept from boilerplate, not compiled in)

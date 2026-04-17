@@ -89,6 +89,15 @@ void readSensors(float tempOffset) {
     float h = dht.readHumidity();
     float t = dht.readTemperature();
 
+    // DHT22 needs ~1-2s to stabilize after power-up; first read often returns NaN.
+    // Retry once after the library's 2s minimum read interval.
+    if (isnan(h) || isnan(t)) {
+        Serial.println("[DHT22] First read failed, retrying...");
+        delay(2100);
+        h = dht.readHumidity();
+        t = dht.readTemperature();
+    }
+
     if (isnan(h) || isnan(t)) {
         Serial.println("[DHT22] Read failed — NaN (h=" + String(h) + " t=" + String(t) + ")");
         sensorData.dhtOk = false;

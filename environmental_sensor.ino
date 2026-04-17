@@ -35,10 +35,13 @@ enum Trend { TREND_STABLE, TREND_UP, TREND_DOWN };
 #define PIR_PIN              D6
 #define LED_PIN              D4
 
-// Adaptive publish thresholds — skip publish if all values within these
+// Adaptive publish thresholds — skip publish if all values within these.
+// Pressure threshold matches the published precision (0.1 hPa) so any visible
+// change is reported promptly — atmospheric pressure changes are small but
+// meaningful for the Zambretti forecast.
 #define TEMP_THRESHOLD       0.2   // °C
 #define HUM_THRESHOLD        1.0   // %
-#define PRES_THRESHOLD       0.5   // hPa
+#define PRES_THRESHOLD       0.1   // hPa
 #define BATT_THRESHOLD       0.05  // V
 #define MAX_SKIP_CYCLES      5     // Force publish after this many skipped cycles
 
@@ -343,7 +346,15 @@ void restoreFromRtc() {
 }
 
 void readBattery() {
-    int rawAdc = analogRead(A0);
+    // Average several samples — a single ADC read near the low-battery
+    // threshold can be noisy enough to spuriously trip lowBatteryMode.
+    const int samples = 8;
+    int total = 0;
+    for (int i = 0; i < samples; i++) {
+        total += analogRead(A0);
+        delay(2);
+    }
+    int rawAdc = total / samples;
     rtcState.batteryVoltage = rawAdc * VBAT_MULTIPLIER;
     Serial.println("[BATT] " + String(rtcState.batteryVoltage, 2) + "V (ADC:" + String(rawAdc) + ")");
 }
@@ -387,11 +398,13 @@ void saveAndSleep(uint32_t seconds) {
 void lowBatteryMode() {
     Serial.println("[BATT] LOW — skipping WiFi, sleeping " + String(LOW_BATT_SLEEP_SECONDS) + "s");
 
-    // Show low battery warning on display
+    // Show the warning briefly, then power-save the display so it doesn't
+    // stay lit across the 60s sleep or leak into a later idle wake after
+    // the battery recovers above VBAT_LOW.
     initiateDisplay();
-    sensorData.dhtOk = false;
-    sensorData.bmpOk = false;
-    updateDisplay(rtcState.batteryVoltage);
+    showLowBatteryWarning(rtcState.batteryVoltage);
+    delay(3000);
+    clearDisplay();
 
     saveAndSleep(LOW_BATT_SLEEP_SECONDS);
 }

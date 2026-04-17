@@ -71,7 +71,7 @@ The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the
 ### Idle Mode (no motion)
 - Deep sleeps for 3 seconds, wakes, checks the PIR sensor
 - Every ~60 seconds: reads all sensors, connects WiFi, publishes MQTT, disconnects
-- **Adaptive publishing**: skips MQTT if values haven't changed significantly, saving WiFi energy. Forces publish after 5 skipped cycles (~5 minutes).
+- **Adaptive publishing**: skips MQTT if values haven't changed significantly, saving WiFi energy. Forces publish after 5 skipped cycles (~5 minutes). Pressure uses a tight 0.1 hPa threshold so forecast-relevant changes report quickly.
 - Display is off, WiFi is off between publishes
 
 ### Active Mode (motion detected)
@@ -83,7 +83,7 @@ The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the
 
 ### Low Battery Mode (< 3.5V)
 - Skips WiFi and sensor reads to conserve remaining power
-- Shows warning on OLED display
+- Shows a full-screen "Low battery!" warning on the OLED with a large crossed-out battery icon and current voltage
 - Sleeps for 60 seconds between checks
 
 ### Features

@@ -38,6 +38,39 @@ void drawCentered(int xStart, int width, int y, const char* str) {
     display.drawStr(xStart + (width - sw) / 2, y, str);
 }
 
+// Full-screen low battery warning: large crossed-out battery icon + text + voltage.
+void showLowBatteryWarning(float batteryVoltage) {
+    display.clearBuffer();
+
+    // Large battery body — 70x26 centered at top half
+    int bx = 22;
+    int by = 4;
+    int bw = 70;
+    int bh = 26;
+    display.drawFrame(bx,       by,     bw,     bh);
+    display.drawFrame(bx + 1,   by + 1, bw - 2, bh - 2);
+    // Battery terminal (positive cap on the right)
+    display.drawBox(bx + bw, by + 8, 4, bh - 16);
+
+    // Diagonal "crossed-out" lines across the battery
+    display.drawLine(bx,      by,      bx + bw, by + bh);
+    display.drawLine(bx,      by + bh, bx + bw, by);
+    display.drawLine(bx + 1,  by,      bx + bw, by + bh - 1);
+    display.drawLine(bx,      by + bh - 1, bx + bw - 1, by);
+
+    // Warning text
+    display.setFont(u8g2_font_7x13B_tf);
+    drawCentered(0, 128, 46, "Low battery!");
+
+    // Voltage
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%.2f V", batteryVoltage);
+    display.setFont(u8g2_font_6x10_tf);
+    drawCentered(0, 128, 60, buf);
+
+    display.sendBuffer();
+}
+
 void updateDisplay(float batteryVoltage, const char* forecast) {
     display.clearBuffer();
 
