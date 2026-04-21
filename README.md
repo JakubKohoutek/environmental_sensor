@@ -20,7 +20,7 @@ Battery-powered environmental monitoring station built on a Wemos D1 Mini (ESP82
 | BMP180             | SDA  | D2            | 4    | I2C data (shared bus)        |
 | OLED               | SCL  | D1            | 5    | I2C clock (shared bus)       |
 | OLED               | SDA  | D2            | 4    | I2C data (shared bus)        |
-| DHT22              | DATA | D5            | 14   |                              |
+| DHT22              | DATA | D5            | 14   | Add 10kΩ pull-up to 3V3      |
 | PIR sensor         | OUT  | D6            | 12   |                              |
 | Battery (via 100kΩ)| +    | A0            |      | Voltage monitoring           |
 
@@ -70,16 +70,16 @@ The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the
 
 ### Idle Mode (no motion)
 - Deep sleeps for 3 seconds, wakes, checks the PIR sensor
-- Every ~60 seconds: reads all sensors, connects WiFi, publishes MQTT, disconnects
-- **Adaptive publishing**: skips MQTT if values haven't changed significantly, saving WiFi energy. Forces publish after 5 skipped cycles (~5 minutes). Pressure uses a tight 0.1 hPa threshold so forecast-relevant changes report quickly.
+- Every ~2 minutes: reads all sensors, connects WiFi, publishes MQTT, disconnects
+- **Adaptive publishing**: skips MQTT if values haven't changed significantly, saving WiFi energy. Forces publish after 5 skipped cycles (~10 minutes max silence). Pressure uses a tight 0.1 hPa threshold so forecast-relevant changes report quickly.
 - Display is off, WiFi is off between publishes
 
-### Active Mode (motion detected)
-- Stays fully awake — OLED display shows live readings with **trend arrows** (↑↓→)
-- Sensors read every 15 seconds, display updated
-- WiFi connects every 30 seconds for MQTT publish, disconnects immediately
-- LED blinks on initial motion detection
-- Returns to idle after 60 seconds of no motion
+### Display-Active Mode (motion detected)
+- MCU keeps the 3-second sleep cycles — the OLED is painted once and **retains the frame across deep sleeps** (OLEDs hold their state without drawing extra current)
+- PIR HIGH on any wake refills the 60-second "display-on" countdown
+- Sensors + display redraw every ~15 seconds while the display is lit
+- MQTT stays on the normal 2-minute cadence — PIR events do not trigger extra publishes; the motion flag included in each publish reflects whether the display is currently active
+- When the countdown reaches 0 the OLED is cleared and the device falls back to pure idle
 
 ### Low Battery Mode (< 3.5V)
 - Skips WiFi, sensor reads, and active mode — all non-essential power draws are disabled
@@ -94,7 +94,7 @@ The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the
 - **MQTT auto-discovery**: Home Assistant sensors appear automatically, no manual YAML needed
 - **Watchdog timer**: 8-second hardware WDT prevents hangs
 - **WiFi fast connect**: caches router BSSID/channel for ~1s connection time
-- **Sensor calibration**: temperature offset (0.9°C) and humidity linear correction
+- **Sensor calibration**: temperature offset (0.3°C) and humidity linear correction
 
 ## MQTT Topics
 
@@ -102,7 +102,7 @@ The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the
 |-------|-----------|-------------|
 | `environmental_sensor/temperature` | Publish | Temperature in °C |
 | `environmental_sensor/humidity` | Publish | Relative humidity in % |
-| `environmental_sensor/sea_level_pressure` | Publish | Sea-level pressure in hPa |
+| `environmental_sensor/pressure` | Publish | Sea-level adjusted pressure in hPa |
 | `environmental_sensor/altitude` | Publish | Altitude in m |
 | `environmental_sensor/battery` | Publish | Battery voltage in V |
 | `environmental_sensor/motion` | Publish | PIR state: ON / OFF |

@@ -3,7 +3,7 @@ set -euo pipefail
 
 FQBN_COMPILE="esp8266:esp8266:d1_mini"
 FQBN_UPLOAD="esp8266:esp8266:d1_mini"
-BAUD="115200"
+BAUD="74880"
 SESSION_VAR_NAME="ENV_SENSOR_UPLOAD_PORT"
 
 parent_shell_pid="$(ps -o ppid= -p $$ | tr -d ' ')"

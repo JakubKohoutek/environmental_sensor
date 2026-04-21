@@ -31,25 +31,26 @@ This is an Arduino IDE project targeting ESP8266. The sketch is `environmental_s
 
 **Idle mode** (no motion):
 - Deep sleep 3s → wake → check PIR on D6 → sleep
-- Every 20 wakes (~60s): full sensor read + WiFi fast connect + MQTT publish → sleep
-- Adaptive publish: skips MQTT if values haven't changed significantly (thresholds: ±0.2°C temp, ±1% hum, ±0.1hPa pressure, ±0.05V battery). Forces publish after 5 skipped cycles. Pressure threshold matches the published precision so even small but meaningful changes are reported.
+- Every 40 wakes (~120s): full sensor read + WiFi fast connect + MQTT publish → sleep
+- Adaptive publish: skips MQTT if values haven't changed significantly (thresholds: ±0.2°C temp, ±1% hum, ±0.1hPa pressure, ±0.05V battery). Forces publish after 5 skipped cycles (≈10 min max silence). Pressure threshold matches the published precision so even small but meaningful changes are reported.
 - Display off, WiFi off between publishes
 
-**Active mode** (PIR triggered):
-- Stays awake continuously — no display flicker
-- OLED display on with trend arrows, sensors read every 15s, display updated
-- WiFi connects every 30s to publish MQTT, disconnects immediately after
-- Checks PIR continuously; resets 60s inactivity timeout on each detection
-- When PIR quiet for 60s: publishes motion OFF, clears display, enters idle mode
+**Display-active mode** (PIR triggered):
+- MCU does NOT stay awake — the device continues its 3s deep-sleep cycles
+- On PIR HIGH, the OLED is painted with current readings and retains that frame across sleeps (OLEDs hold their state without extra current)
+- On every wake while the display is lit, PIR is re-polled; each PIR HIGH refills a 20-wake (~60s) countdown
+- Sensors + display redraw on a `DISPLAY_REFRESH_INTERVAL` schedule (every 5 wakes = ~15s), so values stay current without drawing every 3s
+- MQTT publishing stays on the normal 2-min idle cadence — PIR transitions do not trigger extra publishes. The published motion flag reflects current display-active state.
+- When the countdown reaches 0 (20 consecutive wakes with no PIR HIGH), the OLED is cleared via `clearDisplay()` and the device falls back to pure idle
 
 **Low battery mode** (< 3.5V):
 - Skips WiFi, sensor reads, and active mode — the device still wakes every 3s (same interval as idle mode) to check the PIR so motion is detected promptly
 - While PIR is HIGH, the full-screen "Low battery!" warning (large crossed-out battery icon + voltage) flashes by toggling on every wake: shown one cycle (~3s), hidden the next, repeating for as long as motion is held
 - `rtcState.lowBatteryWarningShown` holds the flash state across deep-sleep wakes; when PIR drops LOW the display is cleared and the flag reset so the next motion event starts the cycle from "shown"
-- Battery ADC is averaged over 8 samples to avoid a single noisy read tripping the 3.5V threshold
+- Battery ADC is averaged over 2 samples to smooth noise near the 3.5V threshold without adding material wake time
 
 ### Safety
-- **Watchdog timer**: 8-second hardware WDT enabled. Fed explicitly in WiFi connect and active mode loops.
+- **Watchdog timer**: 8-second hardware WDT enabled. Fed explicitly inside the WiFi connect loop.
 
 ### Power optimizations
 - **WiFi fast connect**: caches router BSSID and channel in RTC memory (~1s vs ~3s connect)
@@ -57,9 +58,10 @@ This is an Arduino IDE project targeting ESP8266. The sketch is `environmental_s
 - **3-second idle sleep**: balances PIR responsiveness vs wake overhead
 - **WiFi off when not publishing**: only connects for MQTT publish bursts
 - **Adaptive publish**: skips WiFi entirely when sensor values unchanged
+- **Full cycle cadence**: full sensor/MQTT cycle every ~120s in idle mode (vs every 3s PIR poll)
 
 ### Sensor calibration
-- **Temperature offset**: 0.9°C subtracted from raw readings (ESP8266 self-heating)
+- **Temperature offset**: 0.3°C subtracted from raw readings (ESP8266 self-heating)
 - **Humidity calibration**: linear correction anchored at 100% — `actual = 100 - (100 - raw) * 1.225`
 - **Sea-level pressure**: station pressure adjusted for 235m altitude using barometric formula
 - **Zambretti forecast**: weather prediction based on sea-level pressure and trend using short Czech OLED labels (e.g., "Jasno", "Brzy dest", "Bourky")
@@ -86,15 +88,9 @@ State persisted across deep sleep cycles via `RtcState` struct:
 - Magic number for validity check (0xE5A70004)
 
 ### Modules
-- **`sensors.h/cpp`**: DHT22 + BMP180 reading with temperature offset, humidity calibration (linear + Magnus), sea-level pressure calculation (235m altitude), Zambretti weather forecast. Shared `SensorData` struct. DHT22 read retries once after a 2.1s delay if the first attempt returns NaN (covers the cold-boot stabilization window).
+- **`sensors.h/cpp`**: DHT22 + BMP180 reading with temperature offset, humidity calibration (linear + Magnus), sea-level pressure calculation (235m altitude), Zambretti weather forecast. Shared `SensorData` struct. DHT22 is read once per cycle — no in-call retries. The sensor is often unresponsive for 10–30s after an ESP8266 deep-sleep wake, likely a signal-integrity issue; recommended hardware fix is a **10kΩ external pull-up between D5 (DHT22 data) and 3V3**.
 - **`display.h/cpp`**: 1.3" SH1106 OLED via U8g2. Four-quadrant layout: temp (top-left), humidity (top-right), Zambretti forecast (bottom-left), battery icon + voltage (bottom-right). Dedicated full-screen low-battery warning view (crossed-out battery icon + voltage).
 - **`mqtt.h/cpp`**: MQTT topic defines and shared PubSubClient instance.
-
-### Unused modules (kept from boilerplate, not compiled in)
-- `web.h` — web dashboard (not compatible with deep sleep)
-- `log.h/cpp` — LittleFS + WebSerial logging (not compatible with deep sleep)
-- `memory.h/cpp` — EEPROM helpers (RTC memory used instead)
-- `ota.h/cpp` — ArduinoOTA (not compatible with deep sleep)
 
 ### Hardware
 
@@ -120,7 +116,7 @@ State persisted across deep sleep cycles via `RtcState` struct:
 ### MQTT Topics
 - `environmental_sensor/temperature` — Publish (retained) — DHT22 temperature (°C)
 - `environmental_sensor/humidity` — Publish (retained) — DHT22 humidity (%)
-- `environmental_sensor/sea_level_pressure` — Publish (retained) — Sea-level adjusted pressure (hPa)
+- `environmental_sensor/pressure` — Publish (retained) — Sea-level adjusted pressure (hPa)
 - `environmental_sensor/altitude` — Publish (retained) — BMP180 altitude (m)
 - `environmental_sensor/battery` — Publish (retained) — Battery voltage (V)
 - `environmental_sensor/motion` — Publish (retained) — PIR state (ON/OFF)

@@ -14,15 +14,23 @@ enum Trend { TREND_STABLE, TREND_UP, TREND_DOWN };
 #define IDLE_SLEEP_SECONDS   3
 
 // Full sensor/MQTT cycle interval in idle mode (in wake counts)
-#define FULL_CYCLE_INTERVAL  20   // ~60s at 3s sleep
+#define FULL_CYCLE_INTERVAL  40   // ~120s at 3s sleep
 
-// Active mode timings (ms)
-#define ACTIVE_TIMEOUT_MS    60000 // Stay active 60s after last motion
-#define PUBLISH_INTERVAL_MS  30000 // Publish every 30s while active
-#define SENSOR_INTERVAL_MS   15000 // Read sensors every 15s while active
+// Display-active mode: PIR triggers the OLED on, but the MCU still sleeps
+// 3s at a time between PIR polls. The OLED retains its last frame across
+// deep-sleep cycles without drawing additional current.
+#define DISPLAY_ON_WAKES         20   // Keep OLED lit 60s after last PIR HIGH
+#define DISPLAY_REFRESH_INTERVAL 5    // Check sensors every 15s while lit
+
+// Display redraw thresholds — only repaint when the rendered digits would
+// actually change. `display.begin()` sends a DISPLAY_OFF→DISPLAY_ON pair
+// that visibly flickers the OLED, so we avoid calling it on unchanged data.
+#define DISP_TEMP_THRESHOLD      0.05f   // matches %.1f rendering
+#define DISP_HUM_THRESHOLD       0.05f
+#define DISP_BATT_THRESHOLD      0.005f  // matches %.2f rendering
 
 // Temperature calibration offset
-#define TEMP_OFFSET          1.0  // °C to subtract from DHT22 reading (calibration)
+#define TEMP_OFFSET          0.3  // °C to subtract from DHT22 reading (calibration)
 
 // WiFi
 #define WIFI_TIMEOUT_MS      5000
@@ -47,10 +55,20 @@ enum Trend { TREND_STABLE, TREND_UP, TREND_DOWN };
 #define MAX_SKIP_CYCLES      5     // Force publish after this many skipped cycles
 
 // Trend history
-#define TREND_HISTORY_SIZE   5
-#define TREND_TEMP_THRESHOLD 0.3   // °C change to register a trend
-#define TREND_HUM_THRESHOLD  1.5   // %
-#define TREND_PRES_THRESHOLD 0.5   // hPa
+#define TREND_HISTORY_SIZE       5
+#define TREND_TEMP_THRESHOLD     0.3   // °C change to register a trend
+#define TREND_HUM_THRESHOLD      1.5   // %
+#define TREND_PRES_THRESHOLD     0.5   // hPa
+// recordHistory is called on every full cycle (idle, ~2 min) and multiple
+// times per active-mode cycle. Zambretti expects a multi-hour pressure
+// trend, so only commit every Nth call to the circular buffer — spans
+// ~5×18×2min ≈ 3 hours worth of idle-mode samples.
+#define TREND_SUBSAMPLE_INTERVAL 18
+
+// How many full cycles between MQTT discovery republishes. Home Assistant
+// may restart and lose entities; rebroadcasting keeps them registered.
+// ~30 cycles × 2 min = ~60 min.
+#define DISCOVERY_REPUBLISH_INTERVAL 30
 
 // ── RTC memory state ──────────────────────────────────────────────
 
@@ -75,22 +93,34 @@ struct RtcState {
     float    lastPubPres;
     float    lastPubBatt;
     uint32_t skipCount;
-    // Trend history (circular buffer)
-    float    tempHistory[TREND_HISTORY_SIZE];
-    float    humHistory[TREND_HISTORY_SIZE];
+    // Trend history (circular buffer) — only presHistory is used (for
+    // Zambretti forecast). Temp/hum history arrays are not read anywhere.
     float    presHistory[TREND_HISTORY_SIZE];
     uint32_t historyIndex;
     uint32_t historyCount;
+    uint32_t trendSubsampleCounter;
     // MQTT discovery
     uint32_t discoveryPublished;
+    uint32_t cyclesSinceDiscovery;
     // Low-battery warning flash state — toggled each wake while PIR is HIGH
     // so the warning blinks (shown one cycle, hidden the next). Cleared
     // back to 0 whenever PIR returns LOW so the display goes dark.
     uint32_t lowBatteryWarningShown;
+    // Display-active state: wakes remaining before OLED is cleared, and
+    // wake countdown until the next sensor/display redraw.
+    uint32_t displayOnCountdown;
+    uint32_t displayRefreshDue;
+    // Last values actually rendered to the OLED. Used to skip redraws
+    // when nothing visible has changed, preventing display flicker.
+    float    lastDispTemp;
+    float    lastDispHum;
+    float    lastDispBatt;
+    uint32_t lastDispDhtOk;
+    char     lastDispForecast[10];  // max 9 chars + null
     uint32_t magic;
 };
 
-#define RTC_MAGIC 0xE5A70004
+#define RTC_MAGIC 0xE5A70007
 #define RTC_ADDR  0
 
 const char* ssid     = STASSID;
@@ -168,7 +198,7 @@ void publishDiscovery() {
     DiscoveryEntry entries[] = {
         {"sensor", "temperature", "Temperature",       MQTT_TEMPERATURE_TOPIC,  "temperature",          "\xc2\xb0""C", NULL, "measurement"},
         {"sensor", "humidity",    "Humidity",           MQTT_HUMIDITY_TOPIC,     "humidity",             "%",           NULL, "measurement"},
-        {"sensor", "pressure",    "Pressure",           MQTT_SEA_PRESSURE_TOPIC, "atmospheric_pressure", "hPa",         NULL, "measurement"},
+        {"sensor", "pressure",    "Pressure",           MQTT_PRESSURE_TOPIC,     "atmospheric_pressure", "hPa",         NULL, "measurement"},
         {"sensor", "altitude",    "Altitude",           MQTT_ALTITUDE_TOPIC,     NULL,                   "m",           "mdi:altimeter", "measurement"},
         {"sensor", "battery",     "Battery",            MQTT_BATTERY_TOPIC,      "voltage",              "V",           NULL, "measurement"},
         {"binary_sensor", "motion", "Motion",           MQTT_MOTION_TOPIC,       "motion",               NULL,          NULL, NULL},
@@ -246,10 +276,14 @@ void publishSensorData(bool motionOn) {
     if (WiFi.status() != WL_CONNECTED) return;
     if (!connectMqtt()) return;
 
-    // Publish discovery on first connect
-    if (!rtcState.discoveryPublished) {
+    // Publish discovery on first connect and periodically after, so HA
+    // re-registers entities if it restarted or lost them.
+    rtcState.cyclesSinceDiscovery++;
+    if (!rtcState.discoveryPublished ||
+        rtcState.cyclesSinceDiscovery >= DISCOVERY_REPUBLISH_INTERVAL) {
         publishDiscovery();
         rtcState.discoveryPublished = 1;
+        rtcState.cyclesSinceDiscovery = 0;
     }
 
     char buf[16];
@@ -259,29 +293,28 @@ void publishSensorData(bool motionOn) {
         mqttClient.publish(MQTT_TEMPERATURE_TOPIC, buf, true);
         dtostrf(sensorData.humidity, 4, 1, buf);
         mqttClient.publish(MQTT_HUMIDITY_TOPIC, buf, true);
+        rtcState.lastPubTemp = sensorData.temperature;
+        rtcState.lastPubHum  = sensorData.humidity;
     }
 
     if (sensorData.bmpOk) {
         dtostrf(sensorData.seaLevelPressure, 6, 1, buf);
-        mqttClient.publish(MQTT_SEA_PRESSURE_TOPIC, buf, true);
+        mqttClient.publish(MQTT_PRESSURE_TOPIC, buf, true);
         dtostrf(sensorData.altitude, 6, 1, buf);
         mqttClient.publish(MQTT_ALTITUDE_TOPIC, buf, true);
+        rtcState.lastPubPres = sensorData.seaLevelPressure;
     }
 
     dtostrf(rtcState.batteryVoltage, 4, 2, buf);
     mqttClient.publish(MQTT_BATTERY_TOPIC, buf, true);
+    rtcState.lastPubBatt = rtcState.batteryVoltage;
 
     mqttClient.publish(MQTT_MOTION_TOPIC, motionOn ? "ON" : "OFF", true);
     mqttClient.publish(MQTT_AVAILABLE_TOPIC, "online", true);
 
     flushMqtt();
 
-    // Update last published values
-    rtcState.lastPubTemp = sensorData.temperature;
-    rtcState.lastPubHum  = sensorData.humidity;
-    rtcState.lastPubPres = sensorData.seaLevelPressure;
-    rtcState.lastPubBatt = rtcState.batteryVoltage;
-    rtcState.skipCount   = 0;
+    rtcState.skipCount = 0;
 
     mqttClient.disconnect();
     Serial.println("[MQTT] Published");
@@ -292,10 +325,10 @@ void publishSensorData(bool motionOn) {
 bool shouldPublish() {
     if (rtcState.skipCount >= MAX_SKIP_CYCLES) return true;
 
-    if (abs(sensorData.temperature - rtcState.lastPubTemp) >= TEMP_THRESHOLD) return true;
-    if (abs(sensorData.humidity - rtcState.lastPubHum) >= HUM_THRESHOLD) return true;
-    if (abs(sensorData.seaLevelPressure - rtcState.lastPubPres) >= PRES_THRESHOLD) return true;
-    if (abs(rtcState.batteryVoltage - rtcState.lastPubBatt) >= BATT_THRESHOLD) return true;
+    if (fabs(sensorData.temperature - rtcState.lastPubTemp) >= TEMP_THRESHOLD) return true;
+    if (fabs(sensorData.humidity - rtcState.lastPubHum) >= HUM_THRESHOLD) return true;
+    if (fabs(sensorData.seaLevelPressure - rtcState.lastPubPres) >= PRES_THRESHOLD) return true;
+    if (fabs(rtcState.batteryVoltage - rtcState.lastPubBatt) >= BATT_THRESHOLD) return true;
 
     return false;
 }
@@ -303,9 +336,11 @@ bool shouldPublish() {
 // ── Trend tracking ────────────────────────────────────────────────
 
 void recordHistory() {
+    rtcState.trendSubsampleCounter++;
+    if (rtcState.trendSubsampleCounter % TREND_SUBSAMPLE_INTERVAL != 0) return;
+    if (!sensorData.bmpOk) return;
+
     uint32_t idx = rtcState.historyIndex % TREND_HISTORY_SIZE;
-    rtcState.tempHistory[idx] = sensorData.temperature;
-    rtcState.humHistory[idx]  = sensorData.humidity;
     rtcState.presHistory[idx] = sensorData.seaLevelPressure;
     rtcState.historyIndex++;
     if (rtcState.historyCount < TREND_HISTORY_SIZE) {
@@ -329,14 +364,21 @@ Trend getTrend(float* history, uint32_t count, uint32_t currentIdx, float thresh
 // ── Helpers ───────────────────────────────────────────────────────
 
 void cacheToRtc() {
-    rtcState.temperature      = sensorData.temperature;
-    rtcState.humidity         = sensorData.humidity;
-    rtcState.pressure         = sensorData.pressure;
-    rtcState.seaLevelPressure = sensorData.seaLevelPressure;
-    rtcState.altitude         = sensorData.altitude;
-    rtcState.bmpTemp          = sensorData.bmpTemp;
-    rtcState.dhtOk            = sensorData.dhtOk;
-    rtcState.bmpOk            = sensorData.bmpOk;
+    // Only persist fresh values — when a sensor fails the read returns 0
+    // and we'd otherwise clobber the last-known-good cache, corrupting the
+    // display forecast and the adaptive-publish comparison baseline.
+    if (sensorData.dhtOk) {
+        rtcState.temperature = sensorData.temperature;
+        rtcState.humidity    = sensorData.humidity;
+    }
+    if (sensorData.bmpOk) {
+        rtcState.pressure         = sensorData.pressure;
+        rtcState.seaLevelPressure = sensorData.seaLevelPressure;
+        rtcState.altitude         = sensorData.altitude;
+        rtcState.bmpTemp          = sensorData.bmpTemp;
+    }
+    rtcState.dhtOk = sensorData.dhtOk;
+    rtcState.bmpOk = sensorData.bmpOk;
 }
 
 void restoreFromRtc() {
@@ -353,7 +395,7 @@ void restoreFromRtc() {
 void readBattery() {
     // Average several samples — a single ADC read near the low-battery
     // threshold can be noisy enough to spuriously trip lowBatteryMode.
-    const int samples = 8;
+    const int samples = 2;
     int total = 0;
     for (int i = 0; i < samples; i++) {
         total += analogRead(A0);
@@ -395,7 +437,12 @@ void saveAndSleep(uint32_t seconds) {
     ESP.rtcUserMemoryWrite(RTC_ADDR, (uint32_t*)&rtcState, sizeof(rtcState));
     Serial.flush();
     disconnectWiFi();
-    ESP.deepSleep(seconds * 1000000UL);
+    // WAKE_NO_RFCAL skips the ~75 mA × ~200 ms RF calibration burst on
+    // wake (uses cached calibration data instead). RF is still available
+    // for WiFi — only the per-wake cal is skipped. Much less power on
+    // quick PIR-poll wakes, and should keep the ADC bandgap stable since
+    // calibration isn't running each boot.
+    ESP.deepSleep(seconds * 1000000UL, WAKE_NO_RFCAL);
 }
 
 // ── Low battery mode ──────────────────────────────────────────────
@@ -429,64 +476,78 @@ void lowBatteryMode() {
     saveAndSleep(IDLE_SLEEP_SECONDS);
 }
 
-// ── Active mode ───────────────────────────────────────────────────
+// ── Display-active wake ───────────────────────────────────────────
 
-void activeMode() {
-    Serial.println("[MODE] Active — display on");
+// Called on every wake while the display-on countdown is active. Handles
+// one iteration (refresh sensors + redraw if due, publish on the normal
+// full-cycle schedule, decrement countdowns, clear OLED on timeout) and
+// returns to deep sleep. The OLED retains whatever frame was last drawn
+// across the 3s sleep cycles without additional current draw.
+void displayActiveWake(bool firstPirDetection) {
+    rtcState.wakeCounter++;
 
-    digitalWrite(LED_PIN, LOW); // LED on
+    bool refresh = firstPirDetection || rtcState.displayRefreshDue == 0;
+    if (refresh) {
+        fullSensorCycle();
+        rtcState.displayRefreshDue = DISPLAY_REFRESH_INTERVAL;
 
-    fullSensorCycle();
-    initiateDisplay();
-    updateDisplay(rtcState.batteryVoltage, forecast());
+        // Only repaint the OLED when something visible has changed —
+        // `display.begin()` inside initiateDisplay() flickers the panel,
+        // so we avoid calling it when the rendered frame would be identical.
+        const char* currentForecast = forecast();
+        bool needRedraw = firstPirDetection ||
+            ((bool)sensorData.dhtOk != (bool)rtcState.lastDispDhtOk) ||
+            (sensorData.dhtOk && (
+                fabs(sensorData.temperature - rtcState.lastDispTemp) >= DISP_TEMP_THRESHOLD ||
+                fabs(sensorData.humidity    - rtcState.lastDispHum)  >= DISP_HUM_THRESHOLD)) ||
+            fabs(rtcState.batteryVoltage - rtcState.lastDispBatt) >= DISP_BATT_THRESHOLD ||
+            strcmp(currentForecast, rtcState.lastDispForecast) != 0;
 
-    publishCycle(true);
-
-    digitalWrite(LED_PIN, HIGH); // LED off
-
-    unsigned long lastMotion  = millis();
-    unsigned long lastPublish = millis();
-    unsigned long lastSensor  = millis();
-
-    while (millis() - lastMotion < ACTIVE_TIMEOUT_MS) {
-        ESP.wdtFeed();
-
-        if (digitalRead(PIR_PIN) == HIGH) {
-            lastMotion = millis();
+        if (needRedraw) {
+            Serial.println(firstPirDetection ? "[MODE] PIR — display on" : "[MODE] Display refresh");
+            initiateDisplay();
+            updateDisplay(rtcState.batteryVoltage, currentForecast);
+            rtcState.lastDispTemp  = sensorData.temperature;
+            rtcState.lastDispHum   = sensorData.humidity;
+            rtcState.lastDispBatt  = rtcState.batteryVoltage;
+            rtcState.lastDispDhtOk = sensorData.dhtOk;
+            strncpy(rtcState.lastDispForecast, currentForecast,
+                    sizeof(rtcState.lastDispForecast) - 1);
+            rtcState.lastDispForecast[sizeof(rtcState.lastDispForecast) - 1] = '\0';
+        } else {
+            Serial.println("[MODE] Display unchanged — skipping redraw");
         }
-
-        unsigned long now = millis();
-
-        // Periodic sensor read
-        if (now - lastSensor >= SENSOR_INTERVAL_MS) {
-            lastSensor = now;
-            readSensors(TEMP_OFFSET);
-            cacheToRtc();
-            recordHistory();
-            updateDisplay(rtcState.batteryVoltage, forecast());
-        }
-
-        // Periodic publish (WiFi on/off)
-        if (now - lastPublish >= PUBLISH_INTERVAL_MS) {
-            lastPublish = now;
-            readBattery();
-            readSensors(TEMP_OFFSET);
-            cacheToRtc();
-            recordHistory();
-            updateDisplay(rtcState.batteryVoltage, forecast());
-            publishCycle(true);
-        }
-
-        delay(100);
-        yield();
     }
 
-    Serial.println("[MODE] PIR timeout — going idle");
+    // MQTT publish stays on the normal 2-min idle cadence — no extra
+    // publishes just because the display is active. Motion flag reflects
+    // the current display-active state.
+    if (rtcState.wakeCounter >= FULL_CYCLE_INTERVAL) {
+        Serial.println("[MODE] Active — full cycle");
+        rtcState.wakeCounter = 0;
+        if (!refresh) {
+            // Sensors weren't refreshed this wake; read now so the publish
+            // carries current values.
+            fullSensorCycle();
+        }
+        if (shouldPublish()) {
+            publishCycle(true);
+        } else {
+            rtcState.skipCount++;
+            Serial.println("[MQTT] Skipped — values unchanged (" + String(rtcState.skipCount) + "/" + String(MAX_SKIP_CYCLES) + ")");
+        }
+    }
 
-    publishCycle(false);
+    rtcState.displayOnCountdown--;
+    if (rtcState.displayRefreshDue > 0) rtcState.displayRefreshDue--;
 
-    clearDisplay();
-    rtcState.wakeCounter = 0;
+    if (rtcState.displayOnCountdown == 0) {
+        Serial.println("[MODE] PIR timeout — display off");
+        clearDisplay();
+        // Invalidate the display cache so the next PIR wake repaints.
+        rtcState.lastDispForecast[0] = '\0';
+    }
+
     saveAndSleep(IDLE_SLEEP_SECONDS);
 }
 
@@ -516,7 +577,9 @@ void idleMode() {
 // ── Entry point ───────────────────────────────────────────────────
 
 void setup() {
-    Serial.begin(115200);
+    // 74880 matches the ESP8266 ROM bootloader baud, so the boot message
+    // on every wake is readable instead of garbage in the serial monitor.
+    Serial.begin(74880);
     Serial.println();
 
     // Enable watchdog timer
@@ -540,10 +603,19 @@ void setup() {
         lowBatteryMode(); // Never returns — sleeps
     }
 
-    bool motionDetected = digitalRead(PIR_PIN) == HIGH;
+    bool pirHigh = digitalRead(PIR_PIN) == HIGH;
+    bool firstPirDetection = false;
 
-    if (motionDetected) {
-        activeMode();
+    // PIR HIGH (re)arms the display-on countdown. Track whether this wake
+    // is the transition from display-off to display-on so the handler
+    // knows to do an initial refresh + OLED init.
+    if (pirHigh) {
+        firstPirDetection = (rtcState.displayOnCountdown == 0);
+        rtcState.displayOnCountdown = DISPLAY_ON_WAKES;
+    }
+
+    if (rtcState.displayOnCountdown > 0) {
+        displayActiveWake(firstPirDetection);
     } else {
         idleMode();
     }
