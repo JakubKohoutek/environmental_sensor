@@ -111,7 +111,7 @@ State persisted across deep sleep cycles via `RtcState` struct:
 - Battery voltage monitoring: 100kΩ resistor from battery+ to A0
 - ADC calibration: `VBAT_MULTIPLIER = 0.004007` (4.1V at ADC max)
 - Battery icon range: 3.5V (empty, LDO dropout) to 4.1V (full)
-- Low battery threshold: 3.5V (skips WiFi, sleeps 60s)
+- Low battery threshold: 3.5V (skips WiFi/sensors; keeps the normal 3s PIR-poll cycle for the warning flash)
 
 ### MQTT Topics
 - `environmental_sensor/temperature` — Publish (retained) — DHT22 temperature (°C)

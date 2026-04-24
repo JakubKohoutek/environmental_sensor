@@ -37,7 +37,7 @@ Battery-powered environmental monitoring station built on a Wemos D1 Mini (ESP82
 18650 Battery (-) ──→ GND
 ```
 
-The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the device enters low battery mode — skipping WiFi and sleeping for 60 seconds between checks.
+The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the device enters low battery mode — skipping WiFi and sensor reads, but keeping the same 3-second PIR-poll cycle so the on-screen low-battery warning can flash.
 
 ## Setup
 
