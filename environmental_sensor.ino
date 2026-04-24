@@ -4,6 +4,7 @@
 #include "sensors.h"
 #include "display.h"
 #include "mqtt.h"
+#include "debug.h"
 
 // Trend direction (used internally for Zambretti forecast)
 enum Trend { TREND_STABLE, TREND_UP, TREND_DOWN };
@@ -136,11 +137,11 @@ void connectWiFi() {
 
     if (rtcState.wifiCached) {
         WiFi.begin(ssid, password, rtcState.wifiChannel, rtcState.bssid, true);
-        Serial.print("[WIFI] Fast connect ch:");
-        Serial.println(rtcState.wifiChannel);
+        DBG_PRINT("[WIFI] Fast connect ch:");
+        DBG_PRINTLN(rtcState.wifiChannel);
     } else {
         WiFi.begin(ssid, password);
-        Serial.println("[WIFI] Full scan connect");
+        DBG_PRINTLN("[WIFI] Full scan connect");
     }
 
     unsigned long start = millis();
@@ -153,13 +154,13 @@ void connectWiFi() {
         memcpy(rtcState.bssid, WiFi.BSSID(), 6);
         rtcState.wifiChannel = WiFi.channel();
         rtcState.wifiCached  = 1;
-        Serial.println("[WIFI] Connected in " + String(millis() - start) + "ms — IP: " + WiFi.localIP().toString());
+        DBG_PRINTLN("[WIFI] Connected in " + String(millis() - start) + "ms — IP: " + WiFi.localIP().toString());
     } else {
         if (rtcState.wifiCached) {
             rtcState.wifiCached = 0;
-            Serial.println("[WIFI] Fast connect failed, cache cleared");
+            DBG_PRINTLN("[WIFI] Fast connect failed, cache cleared");
         } else {
-            Serial.println("[WIFI] Connection failed, skipping publish");
+            DBG_PRINTLN("[WIFI] Connection failed, skipping publish");
         }
     }
 }
@@ -239,7 +240,7 @@ void publishDiscovery() {
         mqttClient.publish(topic, payload, true);
     }
 
-    Serial.println("[MQTT] Discovery published");
+    DBG_PRINTLN("[MQTT] Discovery published");
 }
 
 // ── MQTT Publish ──────────────────────────────────────────────────
@@ -258,7 +259,7 @@ bool connectMqtt() {
     #endif
 
     if (!connected) {
-        Serial.println("[MQTT] Connection failed, rc=" + String(mqttClient.state()));
+        DBG_PRINTLN("[MQTT] Connection failed, rc=" + String(mqttClient.state()));
     }
     return connected;
 }
@@ -317,7 +318,7 @@ void publishSensorData(bool motionOn) {
     rtcState.skipCount = 0;
 
     mqttClient.disconnect();
-    Serial.println("[MQTT] Published");
+    DBG_PRINTLN("[MQTT] Published");
 }
 
 // ── Adaptive publish ──────────────────────────────────────────────
@@ -403,7 +404,7 @@ void readBattery() {
     }
     int rawAdc = total / samples;
     rtcState.batteryVoltage = rawAdc * VBAT_MULTIPLIER;
-    Serial.println("[BATT] " + String(rtcState.batteryVoltage, 2) + "V (ADC:" + String(rawAdc) + ")");
+    DBG_PRINTLN("[BATT] " + String(rtcState.batteryVoltage, 2) + "V (ADC:" + String(rawAdc) + ")");
 }
 
 void fullSensorCycle() {
@@ -435,7 +436,7 @@ void publishCycle(bool motionOn) {
 
 void saveAndSleep(uint32_t seconds) {
     ESP.rtcUserMemoryWrite(RTC_ADDR, (uint32_t*)&rtcState, sizeof(rtcState));
-    Serial.flush();
+    DBG_FLUSH();
     disconnectWiFi();
     // WAKE_NO_RFCAL skips the ~75 mA × ~200 ms RF calibration burst on
     // wake (uses cached calibration data instead). RF is still available
@@ -469,7 +470,7 @@ void lowBatteryMode() {
         rtcState.lowBatteryWarningShown = 0;
     }
 
-    Serial.println("[BATT] LOW " + String(rtcState.batteryVoltage, 2) +
+    DBG_PRINTLN("[BATT] LOW " + String(rtcState.batteryVoltage, 2) +
                    "V — PIR " + (pirHigh ? "HIGH" : "LOW") +
                    ", warning " + (rtcState.lowBatteryWarningShown ? "ON" : "OFF"));
 
@@ -504,7 +505,7 @@ void displayActiveWake(bool firstPirDetection) {
             strcmp(currentForecast, rtcState.lastDispForecast) != 0;
 
         if (needRedraw) {
-            Serial.println(firstPirDetection ? "[MODE] PIR — display on" : "[MODE] Display refresh");
+            DBG_PRINTLN(firstPirDetection ? "[MODE] PIR — display on" : "[MODE] Display refresh");
             initiateDisplay();
             updateDisplay(rtcState.batteryVoltage, currentForecast);
             rtcState.lastDispTemp  = sensorData.temperature;
@@ -515,7 +516,7 @@ void displayActiveWake(bool firstPirDetection) {
                     sizeof(rtcState.lastDispForecast) - 1);
             rtcState.lastDispForecast[sizeof(rtcState.lastDispForecast) - 1] = '\0';
         } else {
-            Serial.println("[MODE] Display unchanged — skipping redraw");
+            DBG_PRINTLN("[MODE] Display unchanged — skipping redraw");
         }
     }
 
@@ -523,7 +524,7 @@ void displayActiveWake(bool firstPirDetection) {
     // publishes just because the display is active. Motion flag reflects
     // the current display-active state.
     if (rtcState.wakeCounter >= FULL_CYCLE_INTERVAL) {
-        Serial.println("[MODE] Active — full cycle");
+        DBG_PRINTLN("[MODE] Active — full cycle");
         rtcState.wakeCounter = 0;
         if (!refresh) {
             // Sensors weren't refreshed this wake; read now so the publish
@@ -534,7 +535,7 @@ void displayActiveWake(bool firstPirDetection) {
             publishCycle(true);
         } else {
             rtcState.skipCount++;
-            Serial.println("[MQTT] Skipped — values unchanged (" + String(rtcState.skipCount) + "/" + String(MAX_SKIP_CYCLES) + ")");
+            DBG_PRINTLN("[MQTT] Skipped — values unchanged (" + String(rtcState.skipCount) + "/" + String(MAX_SKIP_CYCLES) + ")");
         }
     }
 
@@ -542,7 +543,7 @@ void displayActiveWake(bool firstPirDetection) {
     if (rtcState.displayRefreshDue > 0) rtcState.displayRefreshDue--;
 
     if (rtcState.displayOnCountdown == 0) {
-        Serial.println("[MODE] PIR timeout — display off");
+        DBG_PRINTLN("[MODE] PIR timeout — display off");
         clearDisplay();
         // Invalidate the display cache so the next PIR wake repaints.
         rtcState.lastDispForecast[0] = '\0';
@@ -558,7 +559,7 @@ void idleMode() {
     bool fullCycle = rtcState.wakeCounter >= FULL_CYCLE_INTERVAL;
 
     if (fullCycle) {
-        Serial.println("[MODE] Idle — full cycle");
+        DBG_PRINTLN("[MODE] Idle — full cycle");
         rtcState.wakeCounter = 0;
 
         fullSensorCycle();
@@ -567,7 +568,7 @@ void idleMode() {
             publishCycle(false);
         } else {
             rtcState.skipCount++;
-            Serial.println("[MQTT] Skipped — values unchanged (" + String(rtcState.skipCount) + "/" + String(MAX_SKIP_CYCLES) + ")");
+            DBG_PRINTLN("[MQTT] Skipped — values unchanged (" + String(rtcState.skipCount) + "/" + String(MAX_SKIP_CYCLES) + ")");
         }
     }
 
@@ -579,8 +580,8 @@ void idleMode() {
 void setup() {
     // 74880 matches the ESP8266 ROM bootloader baud, so the boot message
     // on every wake is readable instead of garbage in the serial monitor.
-    Serial.begin(74880);
-    Serial.println();
+    DBG_BEGIN(74880);
+    DBG_NEWLINE();
 
     // Enable watchdog timer
     ESP.wdtEnable(WDTO_8S);

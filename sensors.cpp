@@ -3,6 +3,7 @@
 #include <Adafruit_BMP085.h>
 
 #include "sensors.h"
+#include "debug.h"
 
 #define DHT_PIN   D5
 #define DHT_TYPE  DHT22
@@ -17,13 +18,13 @@ SensorData sensorData = {0, 0, 0, 0, 0, 0, false, false};
 
 void initiateSensors() {
     dht.begin();
-    Serial.println("[SENSORS] DHT22 initialized on pin D5");
+    DBG_PRINTLN("[SENSORS] DHT22 initialized on pin D5");
 
     if (!bmp.begin()) {
-        Serial.println("[SENSORS] BMP180 not found! Check wiring.");
+        DBG_PRINTLN("[SENSORS] BMP180 not found! Check wiring.");
         sensorData.bmpOk = false;
     } else {
-        Serial.println("[SENSORS] BMP180 initialized");
+        DBG_PRINTLN("[SENSORS] BMP180 initialized");
         sensorData.bmpOk = true;
     }
 }
@@ -89,7 +90,7 @@ void readSensors(float tempOffset) {
     float t = dht.readTemperature();
 
     if (isnan(h) || isnan(t)) {
-        Serial.println("[DHT22] Read failed — NaN (h=" + String(h) + " t=" + String(t) + ")");
+        DBG_PRINTLN("[DHT22] Read failed — NaN (h=" + String(h) + " t=" + String(t) + ")");
         sensorData.dhtOk = false;
     } else {
         float correctedTemp = t - tempOffset;
@@ -99,7 +100,7 @@ void readSensors(float tempOffset) {
         sensorData.temperature = correctedTemp;
         sensorData.humidity    = correctedHum;
 
-        Serial.println("[DHT22] raw T:" + String(t, 1) + "C H:" + String(h, 1) +
+        DBG_PRINTLN("[DHT22] raw T:" + String(t, 1) + "C H:" + String(h, 1) +
                        "% → corrected T:" + String(correctedTemp, 1) + "C H:" + String(correctedHum, 1) + "%");
     }
 
@@ -109,7 +110,7 @@ void readSensors(float tempOffset) {
         sensorData.pressure         = bmp.readPressure() / 100.0; // Pa -> hPa
         sensorData.seaLevelPressure = toSeaLevelPressure(sensorData.pressure);
         sensorData.altitude         = bmp.readAltitude();
-        Serial.println("[BMP180] T:" + String(sensorData.bmpTemp, 1) +
+        DBG_PRINTLN("[BMP180] T:" + String(sensorData.bmpTemp, 1) +
                        "C P:" + String(sensorData.pressure, 1) +
                        "hPa sea:" + String(sensorData.seaLevelPressure, 1) + "hPa");
     }
