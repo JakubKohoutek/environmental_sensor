@@ -31,7 +31,7 @@ enum Trend { TREND_STABLE, TREND_UP, TREND_DOWN };
 #define DISP_BATT_THRESHOLD      0.005f  // matches %.2f rendering
 
 // Temperature calibration offset
-#define TEMP_OFFSET          0.3  // °C to subtract from DHT22 reading (calibration)
+#define TEMP_OFFSET          0.0  // °C subtracted from raw sensor reading — retune if AHT20 shows bias vs a reference
 
 // WiFi
 #define WIFI_TIMEOUT_MS      5000
@@ -82,7 +82,7 @@ struct RtcState {
     float    altitude;
     float    bmpTemp;
     float    batteryVoltage;
-    uint32_t dhtOk;
+    uint32_t ahtOk;
     uint32_t bmpOk;
     // WiFi fast connect cache
     uint8_t  bssid[6];
@@ -116,12 +116,12 @@ struct RtcState {
     float    lastDispTemp;
     float    lastDispHum;
     float    lastDispBatt;
-    uint32_t lastDispDhtOk;
+    uint32_t lastDispAhtOk;
     char     lastDispForecast[10];  // max 9 chars + null
     uint32_t magic;
 };
 
-#define RTC_MAGIC 0xE5A70007
+#define RTC_MAGIC 0xE5A70008
 #define RTC_ADDR  0
 
 const char* ssid     = STASSID;
@@ -180,7 +180,7 @@ void publishDiscovery() {
         "\"dev\":{\"ids\":[\"environmental_sensor\"],"
         "\"name\":\"Environmental Sensor\","
         "\"mf\":\"DIY\","
-        "\"mdl\":\"Wemos D1 Mini + DHT22 + BMP180\"}";
+        "\"mdl\":\"Wemos D1 Mini + AHT20 + BMP280\"}";
 
     const char* avail =
         "\"avty_t\":\"" MQTT_AVAILABLE_TOPIC "\"";
@@ -289,7 +289,7 @@ void publishSensorData(bool motionOn) {
 
     char buf[16];
 
-    if (sensorData.dhtOk) {
+    if (sensorData.ahtOk) {
         dtostrf(sensorData.temperature, 4, 1, buf);
         mqttClient.publish(MQTT_TEMPERATURE_TOPIC, buf, true);
         dtostrf(sensorData.humidity, 4, 1, buf);
@@ -368,7 +368,7 @@ void cacheToRtc() {
     // Only persist fresh values — when a sensor fails the read returns 0
     // and we'd otherwise clobber the last-known-good cache, corrupting the
     // display forecast and the adaptive-publish comparison baseline.
-    if (sensorData.dhtOk) {
+    if (sensorData.ahtOk) {
         rtcState.temperature = sensorData.temperature;
         rtcState.humidity    = sensorData.humidity;
     }
@@ -378,7 +378,7 @@ void cacheToRtc() {
         rtcState.altitude         = sensorData.altitude;
         rtcState.bmpTemp          = sensorData.bmpTemp;
     }
-    rtcState.dhtOk = sensorData.dhtOk;
+    rtcState.ahtOk = sensorData.ahtOk;
     rtcState.bmpOk = sensorData.bmpOk;
 }
 
@@ -389,7 +389,7 @@ void restoreFromRtc() {
     sensorData.seaLevelPressure = rtcState.seaLevelPressure;
     sensorData.altitude         = rtcState.altitude;
     sensorData.bmpTemp          = rtcState.bmpTemp;
-    sensorData.dhtOk            = rtcState.dhtOk;
+    sensorData.ahtOk            = rtcState.ahtOk;
     sensorData.bmpOk            = rtcState.bmpOk;
 }
 
@@ -497,8 +497,8 @@ void displayActiveWake(bool firstPirDetection) {
         // so we avoid calling it when the rendered frame would be identical.
         const char* currentForecast = forecast();
         bool needRedraw = firstPirDetection ||
-            ((bool)sensorData.dhtOk != (bool)rtcState.lastDispDhtOk) ||
-            (sensorData.dhtOk && (
+            ((bool)sensorData.ahtOk != (bool)rtcState.lastDispAhtOk) ||
+            (sensorData.ahtOk && (
                 fabs(sensorData.temperature - rtcState.lastDispTemp) >= DISP_TEMP_THRESHOLD ||
                 fabs(sensorData.humidity    - rtcState.lastDispHum)  >= DISP_HUM_THRESHOLD)) ||
             fabs(rtcState.batteryVoltage - rtcState.lastDispBatt) >= DISP_BATT_THRESHOLD ||
@@ -511,7 +511,7 @@ void displayActiveWake(bool firstPirDetection) {
             rtcState.lastDispTemp  = sensorData.temperature;
             rtcState.lastDispHum   = sensorData.humidity;
             rtcState.lastDispBatt  = rtcState.batteryVoltage;
-            rtcState.lastDispDhtOk = sensorData.dhtOk;
+            rtcState.lastDispAhtOk = sensorData.ahtOk;
             strncpy(rtcState.lastDispForecast, currentForecast,
                     sizeof(rtcState.lastDispForecast) - 1);
             rtcState.lastDispForecast[sizeof(rtcState.lastDispForecast) - 1] = '\0';

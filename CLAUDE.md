@@ -20,8 +20,8 @@ This is an Arduino IDE project targeting ESP8266. The sketch is `environmental_s
 ### Required Libraries
 
 - `ESP8266WiFi`, `PubSubClient`
-- `DHT sensor library` + `Adafruit Unified Sensor` — DHT22 temperature/humidity sensor
-- `Adafruit BMP085 Library` — BMP180 barometric pressure sensor
+- `Adafruit AHTX0` + `Adafruit Unified Sensor` — AHT20 temperature/humidity sensor (I2C)
+- `Adafruit BMP280 Library` — BMP280 barometric pressure sensor (I2C)
 - `U8g2` — 1.3" SH1106 128x64 I2C OLED display
 - WiFi and MQTT credentials come from `<credentials.h>` (must define `STASSID`, `STAPSK`, `MQTT_SERVER`, `MQTT_PORT`, and optionally `MQTT_USER`/`MQTT_PASS`) — this file is not in the repo
 
@@ -61,9 +61,10 @@ This is an Arduino IDE project targeting ESP8266. The sketch is `environmental_s
 - **Full cycle cadence**: full sensor/MQTT cycle every ~120s in idle mode (vs every 3s PIR poll)
 
 ### Sensor calibration
-- **Temperature offset**: 0.3°C subtracted from raw readings (ESP8266 self-heating)
-- **Humidity calibration**: linear correction anchored at 100% — `actual = 100 - (100 - raw) * 1.225`
+- **Temperature offset**: 0.0°C subtracted from raw AHT20 reading — retune against a reference if needed
+- **Humidity calibration**: linear correction anchored at 100% — `actual = 100 - (100 - raw) * HUMIDITY_CAL_FACTOR`. Factor defaults to 1.0 (pass-through) since AHT20 is factory-calibrated to ±2% RH.
 - **Sea-level pressure**: station pressure adjusted for 235m altitude using barometric formula
+- **BMP280 mode**: FORCED (one-shot measurement per read, sensor sleeps between reads — ~0.1 µA idle)
 - **Zambretti forecast**: weather prediction based on sea-level pressure and trend using short Czech OLED labels (e.g., "Jasno", "Brzy dest", "Bourky")
 
 ### Trend tracking
@@ -85,26 +86,26 @@ State persisted across deep sleep cycles via `RtcState` struct:
 - Trend history circular buffer (5 entries)
 - Discovery published flag
 - Low-battery warning flash state (toggled each wake while PIR HIGH)
-- Magic number for validity check (0xE5A70004)
+- Magic number for validity check (0xE5A70008)
 
 ### Modules
-- **`sensors.h/cpp`**: DHT22 + BMP180 reading with temperature offset, humidity calibration (linear + Magnus), sea-level pressure calculation (235m altitude), Zambretti weather forecast. Shared `SensorData` struct. DHT22 is read once per cycle — no in-call retries. The sensor is often unresponsive for 10–30s after an ESP8266 deep-sleep wake, likely a signal-integrity issue; recommended hardware fix is a **10kΩ external pull-up between D5 (DHT22 data) and 3V3**.
+- **`sensors.h/cpp`**: AHT20 (I2C 0x38) + BMP280 (I2C 0x76, falls back to 0x77) reading with temperature offset, humidity calibration (linear + Magnus), sea-level pressure calculation (235m altitude), Zambretti weather forecast. Shared `SensorData` struct. BMP280 runs in FORCED mode so it sleeps between reads.
 - **`display.h/cpp`**: 1.3" SH1106 OLED via U8g2. Four-quadrant layout: temp (top-left), humidity (top-right), Zambretti forecast (bottom-left), battery icon + voltage (bottom-right). Dedicated full-screen low-battery warning view (crossed-out battery icon + voltage).
 - **`mqtt.h/cpp`**: MQTT topic defines and shared PubSubClient instance.
+- **`debug.h`**: `DBG_*` logging macros gated by `#define DEBUG` — compile-time opt-out of Serial output.
 
 ### Hardware
 
 #### Pin assignments
 
-| Pin | GPIO | Function         | Direction | Component         |
-|-----|------|------------------|-----------|-------------------|
-| D0  | 16   | Deep sleep wake  | OUTPUT    | Wired to RST      |
-| D1  | 5    | I2C SCL          | I/O       | BMP180 + OLED     |
-| D2  | 4    | I2C SDA          | I/O       | BMP180 + OLED     |
-| D4  | 2    | Built-in LED     | OUTPUT    | LED (active LOW)  |
-| D5  | 14   | DHT22 data       | INPUT     | DHT22             |
-| D6  | 12   | PIR sensor       | INPUT     | PIR motion sensor |
-| A0  |      | Battery voltage  | INPUT     | 100kΩ divider     |
+| Pin | GPIO | Function         | Direction | Component              |
+|-----|------|------------------|-----------|------------------------|
+| D0  | 16   | Deep sleep wake  | OUTPUT    | Wired to RST           |
+| D1  | 5    | I2C SCL          | I/O       | AHT20 + BMP280 + OLED  |
+| D2  | 4    | I2C SDA          | I/O       | AHT20 + BMP280 + OLED  |
+| D4  | 2    | Built-in LED     | OUTPUT    | LED (active LOW)       |
+| D6  | 12   | PIR sensor       | INPUT     | PIR motion sensor      |
+| A0  |      | Battery voltage  | INPUT     | 100kΩ divider          |
 
 #### Power
 - 18650 Li-Ion battery → HT7330 LDO (3.3V output) → Wemos 3V3 pin
@@ -114,10 +115,10 @@ State persisted across deep sleep cycles via `RtcState` struct:
 - Low battery threshold: 3.5V (skips WiFi/sensors; keeps the normal 3s PIR-poll cycle for the warning flash)
 
 ### MQTT Topics
-- `environmental_sensor/temperature` — Publish (retained) — DHT22 temperature (°C)
-- `environmental_sensor/humidity` — Publish (retained) — DHT22 humidity (%)
+- `environmental_sensor/temperature` — Publish (retained) — AHT20 temperature (°C)
+- `environmental_sensor/humidity` — Publish (retained) — AHT20 humidity (%)
 - `environmental_sensor/pressure` — Publish (retained) — Sea-level adjusted pressure (hPa)
-- `environmental_sensor/altitude` — Publish (retained) — BMP180 altitude (m)
+- `environmental_sensor/altitude` — Publish (retained) — BMP280 altitude (m)
 - `environmental_sensor/battery` — Publish (retained) — Battery voltage (V)
 - `environmental_sensor/motion` — Publish (retained) — PIR state (ON/OFF)
 - `environmental_sensor/available` — Publish (retained) — online/offline (LWT)

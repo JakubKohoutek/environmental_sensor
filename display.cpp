@@ -86,7 +86,7 @@ void updateDisplay(float batteryVoltage, const char* forecast) {
     drawCentered(0, 64, 10, "Temp \xb0\x43");
 
     display.setFont(u8g2_font_logisoso20_tr);
-    if (sensorData.dhtOk) {
+    if (sensorData.ahtOk) {
         snprintf(val, sizeof(val), "%.1f", sensorData.temperature);
     } else {
         snprintf(val, sizeof(val), "--.-");
@@ -98,7 +98,7 @@ void updateDisplay(float batteryVoltage, const char* forecast) {
     drawCentered(65, 63, 10, "Hum %");
 
     display.setFont(u8g2_font_logisoso20_tr);
-    if (sensorData.dhtOk) {
+    if (sensorData.ahtOk) {
         if (sensorData.humidity >= 99.95) {
             snprintf(val, sizeof(val), "100");
         } else {

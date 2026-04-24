@@ -5,8 +5,7 @@ Battery-powered environmental monitoring station built on a Wemos D1 Mini (ESP82
 ## Hardware
 
 - **Wemos D1 Mini** (ESP8266)
-- **DHT22** — temperature & humidity sensor
-- **BMP180** — barometric pressure sensor (I2C)
+- **AHT20 + BMP280 combo module** — temperature, humidity, and barometric pressure over a single I2C bus
 - **1.3" 128x64 OLED** — SH1106 I2C display
 - **PIR motion sensor** — triggers display and active mode
 - **18650 Li-Ion battery** — via HT7330 3.3V LDO regulator
@@ -16,18 +15,18 @@ Battery-powered environmental monitoring station built on a Wemos D1 Mini (ESP82
 | Component          | Pin  | Wemos D1 Mini | GPIO | Notes                        |
 |--------------------|------|---------------|------|------------------------------|
 | Deep sleep         | D0   | RST           | 16   | Required for wake from sleep |
-| BMP180             | SCL  | D1            | 5    | I2C clock (shared bus)       |
-| BMP180             | SDA  | D2            | 4    | I2C data (shared bus)        |
+| AHT20 + BMP280     | SCL  | D1            | 5    | I2C clock (shared bus)       |
+| AHT20 + BMP280     | SDA  | D2            | 4    | I2C data (shared bus)        |
 | OLED               | SCL  | D1            | 5    | I2C clock (shared bus)       |
 | OLED               | SDA  | D2            | 4    | I2C data (shared bus)        |
-| DHT22              | DATA | D5            | 14   | Add 10kΩ pull-up to 3V3      |
 | PIR sensor         | OUT  | D6            | 12   |                              |
 | Battery (via 100kΩ)| +    | A0            |      | Voltage monitoring           |
 
-- BMP180 and OLED share the I2C bus on D1/D2
+- All I2C peripherals share the bus on D1/D2. I2C addresses: AHT20 = 0x38, BMP280 = 0x76 (falls back to 0x77), OLED = 0x3C.
 - Power all sensors from 3.3V (HT7330 LDO output)
 - D0 must be wired to RST for deep sleep wake
 - 100kΩ resistor from battery+ to A0 for voltage monitoring
+- If the combo module has a power LED (common on GY-style boards), remove it — it drains 2–5 mA continuously and will dominate battery consumption
 
 ### Power Supply
 
@@ -42,9 +41,9 @@ The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the
 ## Setup
 
 1. Install required libraries via Arduino Library Manager:
-   - `DHT sensor library` (Adafruit)
+   - `Adafruit AHTX0`
    - `Adafruit Unified Sensor`
-   - `Adafruit BMP085 Library`
+   - `Adafruit BMP280 Library`
    - `U8g2`
    - `PubSubClient`
 
@@ -88,13 +87,14 @@ The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the
 - When motion stops the display is cleared and the device just cycles PIR checks silently
 
 ### Features
-- **Sea-level pressure**: raw BMP180 reading adjusted for 235m station altitude
+- **Sea-level pressure**: raw BMP280 reading adjusted for 235m station altitude
 - **Zambretti forecast**: weather prediction based on pressure value and trend with short Czech labels for the OLED (e.g., "Jasno", "Prehanky", "Bourky")
 - **Trend arrows**: compares last 5 readings to show rising/falling/stable trends on the display
 - **MQTT auto-discovery**: Home Assistant sensors appear automatically, no manual YAML needed
 - **Watchdog timer**: 8-second hardware WDT prevents hangs
 - **WiFi fast connect**: caches router BSSID/channel for ~1s connection time
-- **Sensor calibration**: temperature offset (0.3°C) and humidity linear correction
+- **Low-power sensing**: AHT20 draws ~1 µA idle, BMP280 runs in FORCED mode (~0.1 µA between reads)
+- **Sensor calibration**: temperature offset (default 0.0°C for AHT20) and humidity linear correction (default 1.0× pass-through — AHT20 is factory-calibrated)
 
 ## MQTT Topics
 
