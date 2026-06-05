@@ -31,7 +31,7 @@ enum Trend { TREND_STABLE, TREND_UP, TREND_DOWN };
 #define DISP_BATT_THRESHOLD      0.005f  // matches %.2f rendering
 
 // Temperature calibration offset
-#define TEMP_OFFSET          0.0  // °C subtracted from raw sensor reading — retune if AHT20 shows bias vs a reference
+#define TEMP_OFFSET          0.8  // °C subtracted from raw sensor reading — AHT20 reads ~0.8°C high vs a reference
 
 // WiFi
 #define WIFI_TIMEOUT_MS      5000

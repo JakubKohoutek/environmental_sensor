@@ -94,7 +94,7 @@ The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the
 - **Watchdog timer**: 8-second hardware WDT prevents hangs
 - **WiFi fast connect**: caches router BSSID/channel for ~1s connection time
 - **Low-power sensing**: AHT20 draws ~1 µA idle, BMP280 runs in FORCED mode (~0.1 µA between reads)
-- **Sensor calibration**: temperature offset (default 0.0°C for AHT20) and humidity linear correction (default 1.0× pass-through — AHT20 is factory-calibrated)
+- **Sensor calibration**: temperature offset (0.8°C subtracted — AHT20 reads ~0.8°C high) and humidity linear correction (default 1.0× pass-through — AHT20 is factory-calibrated)
 
 ## MQTT Topics
 

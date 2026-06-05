@@ -61,7 +61,7 @@ This is an Arduino IDE project targeting ESP8266. The sketch is `environmental_s
 - **Full cycle cadence**: full sensor/MQTT cycle every ~120s in idle mode (vs every 3s PIR poll)
 
 ### Sensor calibration
-- **Temperature offset**: 0.0°C subtracted from raw AHT20 reading — retune against a reference if needed
+- **Temperature offset**: 0.8°C subtracted from raw AHT20 reading (AHT20 reads ~0.8°C high vs a reference) — retune if needed
 - **Humidity calibration**: linear correction anchored at 100% — `actual = 100 - (100 - raw) * HUMIDITY_CAL_FACTOR`. Factor defaults to 1.0 (pass-through) since AHT20 is factory-calibrated to ±2% RH.
 - **Sea-level pressure**: station pressure adjusted for 235m altitude using barometric formula
 - **BMP280 mode**: FORCED (one-shot measurement per read, sensor sleeps between reads — ~0.1 µA idle)
