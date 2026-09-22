@@ -77,38 +77,6 @@ float toSeaLevelPressure(float stationPressure) {
     return stationPressure / pow(1.0 - (STATION_ALTITUDE_M / 44330.0), 5.255);
 }
 
-// Zambretti weather forecast algorithm
-// Uses sea-level pressure and trend to predict weather
-// Returns a short Czech string suitable for small OLED display
-// All strings must fit in 64px at 7x13B font (max 9 chars)
-const char* zambretti(float p, int trend) {
-    if (trend > 0) {
-        // Rising pressure — weather improving
-        if (p > 1030) return "Ustaleno";
-        if (p > 1022) return "Jasno";
-        if (p > 1012) return "Pekne";
-        if (p > 1003) return "Vyjasni";
-        if (p >  993) return "Prehanky";
-        return "Brzy dest";
-    }
-    if (trend < 0) {
-        // Falling pressure — weather deteriorating
-        if (p > 1030) return "Pekne";
-        if (p > 1022) return "Nestale";
-        if (p > 1012) return "Brzy dest";
-        if (p > 1003) return "Dest";
-        if (p >  993) return "Bourky";
-        return "Boure!";
-    }
-    // Steady pressure
-    if (p > 1030) return "Jasno";
-    if (p > 1022) return "Pekne";
-    if (p > 1012) return "OK";
-    if (p > 1003) return "Prehanky";
-    if (p >  993) return "Dest";
-    return "Bourky";
-}
-
 void readSensors(float tempOffset) {
     // AHT20 — getEvent() triggers a measurement (~80ms), sensor returns to idle after
     sensors_event_t ahtHumidity, ahtTemp;

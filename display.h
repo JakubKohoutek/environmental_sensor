@@ -2,7 +2,7 @@
 #define DISPLAY_H
 
 void initiateDisplay();
-void updateDisplay(float batteryVoltage, const char* forecast = "");
+void updateDisplay(float batteryVoltage, int batteryDays = -1);
 void showLowBatteryWarning(float batteryVoltage);
 void clearDisplay();
 

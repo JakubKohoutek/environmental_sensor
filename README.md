@@ -1,6 +1,6 @@
 # Environmental Sensor
 
-Battery-powered environmental monitoring station built on a Wemos D1 Mini (ESP8266). Measures temperature, humidity, barometric pressure (sea-level adjusted), and detects motion. Uses deep sleep for long battery life, waking briefly to check sensors and publish data via MQTT with Home Assistant auto-discovery. A 1.3" OLED display with trend arrows shows live readings when motion is detected.
+Battery-powered environmental monitoring station built on a Wemos D1 Mini (ESP8266). Measures temperature, humidity, barometric pressure (sea-level adjusted), and detects motion. Uses deep sleep for long battery life, waking briefly to check sensors and publish data via MQTT with Home Assistant auto-discovery. A dimmed 1.3" OLED shows temperature, humidity, battery voltage, and estimated battery days remaining when motion is detected.
 
 ## Hardware
 
@@ -36,7 +36,7 @@ Battery-powered environmental monitoring station built on a Wemos D1 Mini (ESP82
 18650 Battery (-) ──→ GND
 ```
 
-The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the device enters low battery mode — skipping WiFi and sensor reads, but keeping the same 3-second PIR-poll cycle so the on-screen low-battery warning can flash.
+The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the device enters low battery mode — skipping WiFi and sensor reads, polling the PIR every 10 seconds while idle, and flashing the on-screen warning every 3 seconds while motion is present.
 
 ## Setup
 
@@ -65,31 +65,56 @@ The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the
    scripts/monitor.sh
    ```
 
+### Native Tests
+
+Run `bash scripts/test.sh` with a C++11 compiler (`c++`). Tests cover battery-history averaging, estimation and recharge handling, plus the actual sketch's scheduling and display code using hardware stubs. Build for the board with:
+
+```bash
+arduino-cli compile --fqbn esp8266:esp8266:d1_mini --libraries ~/Documents/Arduino/libraries .
+```
+
 ## How It Works
 
 ### Idle Mode (no motion)
-- Deep sleeps for 3 seconds, wakes, checks the PIR sensor
-- Every ~2 minutes: reads all sensors, connects WiFi, publishes MQTT, disconnects
-- **Adaptive publishing**: skips MQTT if values haven't changed significantly, saving WiFi energy. Forces publish after 5 skipped cycles (~10 minutes max silence). Pressure uses a tight 0.1 hPa threshold so forecast-relevant changes report quickly.
+- Deep sleeps for 10 seconds, wakes, checks the PIR sensor. Display activation can take up to roughly 10 seconds; PIR pulses shorter than the polling interval can be missed.
+- Every ~5 minutes: reads all sensors and, if needed, connects WiFi, publishes MQTT, and disconnects. The first boot also runs a full cycle.
+- **Adaptive publishing**: skips MQTT if changes stay below 0.2°C temperature, 1% humidity, 0.5 hPa pressure, and 0.05 V battery. Pressure is still published with 0.1 hPa precision. After 5 skipped cycles the next cycle forces a publish (~30 minutes between reports when unchanged, assuming successful connections).
 - Display is off, WiFi is off between publishes
+- RF behavior is unchanged: deep sleep still uses `WAKE_NO_RFCAL`, with the existing WiFi connection and transmit-power settings.
 
 ### Display-Active Mode (motion detected)
-- MCU keeps the 3-second sleep cycles — the OLED is painted once and **retains the frame across deep sleeps** (OLEDs hold their state without drawing extra current)
-- PIR HIGH on any wake refills the 60-second "display-on" countdown
+- MCU switches to 3-second sleep cycles — the OLED retains its frame across deep sleeps, but **continues consuming power while lit**.
+- PIR HIGH on any wake renews a roughly 30-second display timeout. Continuous motion can still keep the display on.
+- OLED contrast is set to **64/255** on each initialization, including the low-battery warning.
 - Sensors + display redraw every ~15 seconds while the display is lit
-- MQTT stays on the normal 2-minute cadence — PIR events do not trigger extra publishes; the motion flag included in each publish reflects whether the display is currently active
-- When the countdown reaches 0 the OLED is cleared and the device falls back to pure idle
+- Redraws are skipped when the visible readings and estimated day count are unchanged.
+- MQTT stays on the normal 5-minute cadence — PIR events do not trigger extra publishes; the motion flag included in each publish reflects whether the display is currently active.
+- After the timeout the OLED is cleared and put into power-save mode, and the device returns to 10-second idle sleeps.
+- Scheduling tracks elapsed sleep and awake time rather than counting wakes, so changing sleep intervals does not change the reporting cadence.
 
 ### Low Battery Mode (< 3.5V)
 - Skips WiFi, sensor reads, and active mode — all non-essential power draws are disabled
-- Keeps waking every 3s to check the PIR so motion is still registered
+- Wakes every 10s while idle to check the PIR
 - While motion is present, the full-screen "Low battery!" warning (large crossed-out battery icon + voltage) flashes — shown on one wake, hidden on the next, alternating for as long as the PIR keeps triggering
+- Warning flashes use 3-second sleeps and the same reduced OLED contrast.
 - When motion stops the display is cleared and the device just cycles PIR checks silently
+
+### Estimated Battery Life
+
+The bottom-left quadrant shows an approximate number of days until the **3.5 V low-battery cutoff**, for example `~28 days`. It is based on voltage history, not measured current or remaining battery capacity.
+
+- Samples battery voltage at roughly 5-minute intervals before sensor/WiFi activity, independently of display activity and skipped MQTT publishes.
+- Averages readings into 6-hour samples and retains 29 averages (roughly a week of history) in RTC memory.
+- Fits a line to the averaged voltage history and extrapolates to the cutoff. At least five averages spanning 24 hours are required, so initial learning normally takes about **30 hours**.
+- Shows `-- days` while learning, during a suspected recharge, or when voltage is flat, rising, or has fallen by less than 0.01 V across the history window. A valid estimate rounding below one day shows `<1 day`; values of 100 days or more use compact text such as `~100d`.
+- Resets history after three consecutive samples at least 0.15 V above the lowest stored average, indicating a sustained recharge. A single high reading does not discard the history.
+- History survives deep sleep but is lost on power removal. Installing this firmware resets the previous RTC layout and starts learning again.
+
+Li-ion voltage is nonlinear and affected by temperature, load, and recovery after load. The result is a rough indication, not a guaranteed runtime. Sleep-clock drift also affects the estimated elapsed time.
 
 ### Features
 - **Sea-level pressure**: raw BMP280 reading adjusted for 235m station altitude
-- **Zambretti forecast**: weather prediction based on pressure value and trend with short Czech labels for the OLED (e.g., "Jasno", "Prehanky", "Bourky")
-- **Trend arrows**: compares last 5 readings to show rising/falling/stable trends on the display
+- **Battery-life estimate**: rolling voltage-history estimate of days to the low-battery cutoff
 - **MQTT auto-discovery**: Home Assistant sensors appear automatically, no manual YAML needed
 - **Watchdog timer**: 8-second hardware WDT prevents hangs
 - **WiFi fast connect**: caches router BSSID/channel for ~1s connection time
@@ -119,14 +144,16 @@ The 1.3" OLED shows a four-quadrant layout:
 ```
 ┌──────────────┬──────────────┐
 │  Temp °C     │  Hum %       │
-│     22.9 ↑   │     53.2 →   │
+│     22.9     │     53.2     │
 ├──────────────┼──────────────┤
-│ 1015 hPa ↓   │ [████] 3.87V │
-│   Pekne       │              │
+│  ~28 days    │ [████] 3.87V │
+│             │              │
 └──────────────┴──────────────┘
 ```
 
-- **Top left**: Temperature with trend arrow
-- **Top right**: Humidity with trend arrow
-- **Bottom left**: Sea-level pressure with trend arrow + Zambretti weather forecast
+- **Top left**: Temperature
+- **Top right**: Humidity
+- **Bottom left**: Estimated battery days remaining (`-- days` while learning)
 - **Bottom right**: Battery icon (3.5-4.1V range) with voltage
+
+Sea-level pressure remains available over MQTT.

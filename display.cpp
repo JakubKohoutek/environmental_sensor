@@ -9,10 +9,11 @@ U8G2_SH1106_128X64_NONAME_F_HW_I2C display(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 
 void initiateDisplay() {
     display.begin();
+    display.setContrast(64);
 }
 
 void clearDisplay() {
-    display.begin();
+    initiateDisplay();
     display.clearBuffer();
     display.sendBuffer();
     display.setPowerSave(1);
@@ -72,7 +73,7 @@ void showLowBatteryWarning(float batteryVoltage) {
     display.sendBuffer();
 }
 
-void updateDisplay(float batteryVoltage, const char* forecast) {
+void updateDisplay(float batteryVoltage, int batteryDays) {
     display.clearBuffer();
 
     // Layout: two columns (0-63, 65-127), top half 0-41, bottom half 43-63
@@ -109,13 +110,20 @@ void updateDisplay(float batteryVoltage, const char* forecast) {
     }
     drawCentered(65, 63, 36, val);
 
-    // ── Forecast — bottom left (0-63) ──
+    // ── Estimated battery life — bottom left (0-63) ──
     display.setFont(u8g2_font_7x13B_tf);
-    if (forecast[0] != '\0') {
-        drawCentered(0, 64, 57, forecast);
+    if (batteryDays < 0) {
+        snprintf(val, sizeof(val), "-- days");
+    } else if (batteryDays == 0) {
+        snprintf(val, sizeof(val), "<1 day");
+    } else if (batteryDays == 1) {
+        snprintf(val, sizeof(val), "~1 day");
+    } else if (batteryDays < 100) {
+        snprintf(val, sizeof(val), "~%d days", batteryDays);
     } else {
-        drawCentered(0, 64, 57, "---");
+        snprintf(val, sizeof(val), "~%dd", batteryDays);
     }
+    drawCentered(0, 64, 57, val);
 
     // ── Battery — bottom right (65-127) ──
     snprintf(val, sizeof(val), "%.2fV", batteryVoltage);
