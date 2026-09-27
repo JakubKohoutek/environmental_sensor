@@ -109,7 +109,7 @@ The bottom-left quadrant shows an approximate number of days until the **3.5 V l
 - Resets the baseline after three consecutive samples at least 0.15 V above the lowest measured voltage, indicating a sustained recharge. A single high reading temporarily suppresses the estimate without discarding the baseline.
 - The baseline survives deep sleep but is lost on power removal. Installing this firmware resets the previous RTC layout and starts learning again.
 
-Li-ion voltage is nonlinear and affected by temperature, load, and recovery after load. The result is a rough indication, not a guaranteed runtime. Sleep-clock drift also affects the estimated elapsed time.
+Li-ion voltage is nonlinear and affected by temperature, load, and recovery after load. Early estimates can vary substantially with small ADC voltage changes; the longer observation period reduces their relative impact. The result is a rough indication, not a guaranteed runtime. Sleep-clock drift also affects the estimated elapsed time.
 
 ### Features
 - **Sea-level pressure**: raw BMP280 reading adjusted for 235m station altitude

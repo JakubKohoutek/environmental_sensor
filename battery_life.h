@@ -19,7 +19,7 @@ struct BatteryLifeState {
 // Returns true when a sustained voltage rise resets the discharge baseline.
 bool recordBatteryVoltage(BatteryLifeState& state, uint32_t now, float voltage);
 
-// -1 means waiting for a drop after the first drop, or recharging.
+// -1 means no first drop yet, no further decrease, or suspected recharge.
 int estimateBatteryDays(const BatteryLifeState& state, uint32_t now,
                         float voltage, float cutoff);
 
