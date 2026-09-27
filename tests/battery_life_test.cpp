@@ -1,8 +1,7 @@
 #include "../battery_life.h"
 
 #include <assert.h>
-#include <initializer_list>
-#include <math.h>
+#include <limits.h>
 #include <stdio.h>
 
 static BatteryLifeState discharge(uint32_t hours, float voltsPerDay,
@@ -19,40 +18,36 @@ int main() {
     assert(estimateBatteryDays(state, 0, 4.1f, 3.5f) == -1);
     assert(estimateBatteryDays(state, 0, 3.5f, 3.5f) == 0);
 
-    state = discharge(24, 0.02f);
-    assert(estimateBatteryDays(state, 24 * 3600, 4.08f, 3.5f) == -1);
+    recordBatteryVoltage(state, 0, 4.1f);
+    assert(!recordBatteryVoltage(state, 3, 3.9f));
+    assert(!state.hasFirstDrop && state.lastReadingAt == 0);
+    recordBatteryVoltage(state, 300, 4.1f);
+    assert(!state.hasFirstDrop);
+    recordBatteryVoltage(state, 600, 4.09f);
+    assert(state.hasFirstDrop && state.firstDropAt == 600);
+    assert(estimateBatteryDays(state, 600, 4.09f, 3.5f) == -1);
+    recordBatteryVoltage(state, 900, 4.08f);
+    assert(estimateBatteryDays(state, 900, 4.08f, 3.5f) == 0);
+    assert(estimateBatteryDays(state, 900, 4.09f, 3.5f) == -1);
+    assert(estimateBatteryDays(state, 900, 4.1f, 3.5f) == -1);
+
     state = discharge(30, 0.02f);
-    assert(state.count == 5);
+    assert(state.firstDropAt == 300);
     assert(estimateBatteryDays(state, 30 * 3600, 4.075f, 3.5f) == 29);
 
     state = discharge(10 * 24, 0.02f);
-    assert(state.count == BATTERY_HISTORY_SIZE);
+    assert(state.firstDropAt == 300);
     assert(estimateBatteryDays(state, 10 * 86400, 3.9f, 3.5f) == 20);
 
     BatteryLifeState frequent = discharge(30, 0.02f, 3);
     BatteryLifeState idle = discharge(30, 0.02f, 10);
-    assert(frequent.count == idle.count);
-    assert(frequent.readingCount == idle.readingCount);
-    assert(fabs(frequent.history[0].voltage - idle.history[0].voltage) < 0.00001f);
+    assert(frequent.firstDropAt == idle.firstDropAt);
+    assert(frequent.firstDropVoltage == idle.firstDropVoltage);
 
-    for (float rate : {0.0f, -0.01f, 0.001f}) {
-        state = discharge(48, rate);
-        assert(estimateBatteryDays(state, 48 * 3600, 4.1f, 3.5f) == -1);
-    }
-
-    state = {};
-    for (uint32_t time = 0; time <= 48 * 3600; time += 300) {
-        float noise = (time / 300) % 2 ? 0.015f : -0.015f;
-        recordBatteryVoltage(state, time, 4.1f - 0.02f * time / 86400.0f + noise);
-    }
-    assert(estimateBatteryDays(state, 48 * 3600, 4.06f, 3.5f) == 28);
-
-    state = {};
-    for (uint32_t time = 0; time <= 48 * 3600; time += 300) {
-        float noise = (time / 300) % 2 ? 0.015f : -0.015f;
-        recordBatteryVoltage(state, time, 4.0f + noise);
-    }
-    assert(estimateBatteryDays(state, 48 * 3600, 4.0f, 3.5f) == -1);
+    state = discharge(48, 0.0f);
+    assert(estimateBatteryDays(state, 48 * 3600, 4.1f, 3.5f) == -1);
+    state = discharge(48, -0.01f);
+    assert(estimateBatteryDays(state, 48 * 3600, 4.12f, 3.5f) == -1);
 
     state = discharge(48, 0.02f);
     for (uint32_t seconds = 48 * 3600 + 300; seconds <= 48 * 3600 + 900; seconds += 300) {
@@ -60,12 +55,12 @@ int main() {
         assert(reset == (seconds == 48 * 3600 + 900));
         assert(estimateBatteryDays(state, seconds, 4.25f, 3.5f) == -1);
     }
-    assert(state.count == 0 && state.readingCount == 1);
+    assert(state.hasReading && !state.hasFirstDrop && state.initialVoltage == 4.25f);
 
     state = discharge(48, 0.02f);
     assert(!recordBatteryVoltage(state, 48 * 3600 + 300, 4.25f));
     assert(!recordBatteryVoltage(state, 48 * 3600 + 600, 4.06f));
-    assert(state.count == 8 && state.rechargeReadings == 0);
+    assert(state.hasFirstDrop && state.rechargeReadings == 0);
 
     uint32_t start = UINT32_MAX - 12 * 3600;
     state = discharge(48, 0.02f, 300, start);
@@ -73,6 +68,11 @@ int main() {
 
     state = discharge(48, 0.02f);
     assert(estimateBatteryDays(state, 48 * 3600, 3.49f, 3.5f) == 0);
+
+    state = {};
+    recordBatteryVoltage(state, 0, 4.1f);
+    recordBatteryVoltage(state, 300, 4.099999f);
+    assert(estimateBatteryDays(state, UINT32_MAX, 4.099998f, 3.5f) == INT_MAX);
 
     puts("Battery-life tests passed");
 }
