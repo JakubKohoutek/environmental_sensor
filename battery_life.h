@@ -4,30 +4,22 @@
 #include <stdint.h>
 
 constexpr uint32_t BATTERY_READING_SECONDS = 300;
-constexpr uint32_t BATTERY_BUCKET_SECONDS = 6 * 60 * 60;
-constexpr uint32_t BATTERY_HISTORY_SIZE = 29;
-
-struct BatterySample {
-    uint32_t seconds;
-    float voltage;
-};
 
 struct BatteryLifeState {
-    BatterySample history[BATTERY_HISTORY_SIZE];
-    uint32_t count;
-    uint32_t next;
-    uint32_t bucketStartedAt;
     uint32_t lastReadingAt;
-    uint32_t readingCount;
-    uint32_t offsetSum;
-    float voltageSum;
+    float initialVoltage;
+    uint32_t firstDropAt;
+    float firstDropVoltage;
+    float lowestVoltage;
     uint32_t rechargeReadings;
+    uint32_t hasReading;
+    uint32_t hasFirstDrop;
 };
 
-// Returns true when a sustained voltage rise resets the discharge history.
+// Returns true when a sustained voltage rise resets the discharge baseline.
 bool recordBatteryVoltage(BatteryLifeState& state, uint32_t now, float voltage);
 
-// -1 means learning, recharging, or no reliable downward trend.
+// -1 means waiting for a drop after the first drop, or recharging.
 int estimateBatteryDays(const BatteryLifeState& state, uint32_t now,
                         float voltage, float cutoff);
 
