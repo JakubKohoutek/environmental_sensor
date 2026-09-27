@@ -67,7 +67,7 @@ The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the
 
 ### Native Tests
 
-Run `bash scripts/test.sh` with a C++11 compiler (`c++`). Tests cover battery-history averaging, estimation and recharge handling, plus the actual sketch's scheduling and display code using hardware stubs. Build for the board with:
+Run `bash scripts/test.sh` with a C++11 compiler (`c++`). Tests cover battery estimation and recharge handling, plus the actual sketch's scheduling and display code using hardware stubs. Build for the board with:
 
 ```bash
 arduino-cli compile --fqbn esp8266:esp8266:d1_mini --libraries ~/Documents/Arduino/libraries .
@@ -103,18 +103,17 @@ arduino-cli compile --fqbn esp8266:esp8266:d1_mini --libraries ~/Documents/Ardui
 
 The bottom-left quadrant shows an approximate number of days until the **3.5 V low-battery cutoff**, for example `~28 days`. It is based on voltage history, not measured current or remaining battery capacity.
 
-- Samples battery voltage at roughly 5-minute intervals before sensor/WiFi activity, independently of display activity and skipped MQTT publishes.
-- Averages readings into 6-hour samples and retains 29 averages (roughly a week of history) in RTC memory.
-- Fits a line to the averaged voltage history and extrapolates to the cutoff. At least five averages spanning 24 hours are required, so initial learning normally takes about **30 hours**.
-- Shows `-- days` while learning, during a suspected recharge, or when voltage is flat, rising, or has fallen by less than 0.01 V across the history window. A valid estimate rounding below one day shows `<1 day`; values of 100 days or more use compact text such as `~100d`.
-- Resets history after three consecutive samples at least 0.15 V above the lowest stored average, indicating a sustained recharge. A single high reading does not discard the history.
-- History survives deep sleep but is lost on power removal. Installing this firmware resets the previous RTC layout and starts learning again.
+- Samples battery voltage at most once every 5 minutes before sensor/WiFi activity, independently of display activity and skipped MQTT publishes.
+- Records the voltage and time of the **first decrease** below the initial reading. Once the voltage falls further, divides the drop since that first decrease by the elapsed hours to estimate volts per hour, then extrapolates from the current voltage to 3.5 V. The baseline stays fixed as the observation period grows.
+- Shows `-- days` until a further decrease is measured, while voltage is flat or rising relative to the first drop, or during a suspected recharge. A valid estimate rounding below one day shows `<1 day`; values of 100 days or more use compact text such as `~100d`.
+- Resets the baseline after three consecutive samples at least 0.15 V above the lowest measured voltage, indicating a sustained recharge. A single high reading temporarily suppresses the estimate without discarding the baseline.
+- The baseline survives deep sleep but is lost on power removal. Installing this firmware resets the previous RTC layout and starts learning again.
 
 Li-ion voltage is nonlinear and affected by temperature, load, and recovery after load. The result is a rough indication, not a guaranteed runtime. Sleep-clock drift also affects the estimated elapsed time.
 
 ### Features
 - **Sea-level pressure**: raw BMP280 reading adjusted for 235m station altitude
-- **Battery-life estimate**: rolling voltage-history estimate of days to the low-battery cutoff
+- **Battery-life estimate**: first-drop voltage trend extrapolated to the low-battery cutoff
 - **MQTT auto-discovery**: Home Assistant sensors appear automatically, no manual YAML needed
 - **Watchdog timer**: 8-second hardware WDT prevents hangs
 - **WiFi fast connect**: caches router BSSID/channel for ~1s connection time
