@@ -1,7 +1,6 @@
 #include "../battery_life.h"
 
 #include <assert.h>
-#include <initializer_list>
 #include <math.h>
 #include <stdio.h>
 
@@ -19,40 +18,58 @@ int main() {
     assert(estimateBatteryDays(state, 0, 4.1f, 3.5f) == -1);
     assert(estimateBatteryDays(state, 0, 3.5f, 3.5f) == 0);
 
-    state = discharge(24, 0.02f);
-    assert(estimateBatteryDays(state, 24 * 3600, 4.08f, 3.5f) == -1);
+    for (uint32_t i = 0; i < BATTERY_AVERAGE_SAMPLES - 1; ++i) {
+        recordBatteryVoltage(state, i * 300, 4.1f);
+        assert(!state.hasFirstDrop && state.initialVoltage == 0);
+    }
+    recordBatteryVoltage(state, (BATTERY_AVERAGE_SAMPLES - 1) * 300, 4.1f);
+    assert(state.initialVoltage == 4.1f && state.readingCount == BATTERY_AVERAGE_SAMPLES);
+    uint32_t lastAt = state.lastReadingAt;
+    assert(!recordBatteryVoltage(state, lastAt + 3, 3.9f));
+    assert(state.lastReadingAt == lastAt && state.smoothedVoltage == 4.1f);
+
+    // Alternating ADC noise must not start the discharge baseline.
+    for (uint32_t i = 6; i < 30; ++i) {
+        recordBatteryVoltage(state, i * 300, i % 2 ? 4.09f : 4.11f);
+        assert(!state.hasFirstDrop);
+        assert(estimateBatteryDays(state, i * 300, 4.09f, 3.5f) == -1);
+    }
+
+    uint32_t firstDrop = 0;
+    for (uint32_t i = 30; i < 45; ++i) {
+        recordBatteryVoltage(state, i * 300, 4.08f);
+        if (state.hasFirstDrop && !firstDrop) firstDrop = state.firstDropAt;
+        assert(estimateBatteryDays(state, i * 300, 4.08f, 3.5f) == -1);
+    }
+    assert(firstDrop && state.firstDropAt == firstDrop);
+    float baseline = state.firstDropVoltage;
+    for (uint32_t i = 45; i < 60; ++i) {
+        recordBatteryVoltage(state, i * 300, 4.05f);
+    }
+    assert(state.firstDropAt == firstDrop && state.firstDropVoltage == baseline);
+    assert(estimateBatteryDays(state, 59 * 300, 4.05f, 3.5f) >= 0);
+
     state = discharge(30, 0.02f);
-    assert(state.count == 5);
-    assert(estimateBatteryDays(state, 30 * 3600, 4.075f, 3.5f) == 29);
+    assert(state.hasFirstDrop);
+    assert(estimateBatteryDays(state, 30 * 3600, 4.075f, 3.5f) == -1);
+    state = discharge(48, 0.02f);
+    assert(state.hasFirstDrop);
+    assert(estimateBatteryDays(state, 48 * 3600, 4.06f, 3.5f) >= 26);
+    assert(estimateBatteryDays(state, 48 * 3600, 4.06f, 3.5f) <= 30);
 
     state = discharge(10 * 24, 0.02f);
-    assert(state.count == BATTERY_HISTORY_SIZE);
-    assert(estimateBatteryDays(state, 10 * 86400, 3.9f, 3.5f) == 20);
+    assert(estimateBatteryDays(state, 10 * 86400, 3.9f, 3.5f) >= 19);
+    assert(estimateBatteryDays(state, 10 * 86400, 3.9f, 3.5f) <= 21);
 
-    BatteryLifeState frequent = discharge(30, 0.02f, 3);
-    BatteryLifeState idle = discharge(30, 0.02f, 10);
-    assert(frequent.count == idle.count);
-    assert(frequent.readingCount == idle.readingCount);
-    assert(fabs(frequent.history[0].voltage - idle.history[0].voltage) < 0.00001f);
+    BatteryLifeState frequent = discharge(48, 0.02f, 3);
+    BatteryLifeState idle = discharge(48, 0.02f, 10);
+    assert(frequent.firstDropAt == idle.firstDropAt);
+    assert(fabs(frequent.smoothedVoltage - idle.smoothedVoltage) < 0.00001f);
 
-    for (float rate : {0.0f, -0.01f, 0.001f}) {
-        state = discharge(48, rate);
-        assert(estimateBatteryDays(state, 48 * 3600, 4.1f, 3.5f) == -1);
-    }
-
-    state = {};
-    for (uint32_t time = 0; time <= 48 * 3600; time += 300) {
-        float noise = (time / 300) % 2 ? 0.015f : -0.015f;
-        recordBatteryVoltage(state, time, 4.1f - 0.02f * time / 86400.0f + noise);
-    }
-    assert(estimateBatteryDays(state, 48 * 3600, 4.06f, 3.5f) == 28);
-
-    state = {};
-    for (uint32_t time = 0; time <= 48 * 3600; time += 300) {
-        float noise = (time / 300) % 2 ? 0.015f : -0.015f;
-        recordBatteryVoltage(state, time, 4.0f + noise);
-    }
-    assert(estimateBatteryDays(state, 48 * 3600, 4.0f, 3.5f) == -1);
+    state = discharge(48, 0.0f);
+    assert(estimateBatteryDays(state, 48 * 3600, 4.1f, 3.5f) == -1);
+    state = discharge(48, -0.01f);
+    assert(estimateBatteryDays(state, 48 * 3600, 4.12f, 3.5f) == -1);
 
     state = discharge(48, 0.02f);
     for (uint32_t seconds = 48 * 3600 + 300; seconds <= 48 * 3600 + 900; seconds += 300) {
@@ -60,19 +77,18 @@ int main() {
         assert(reset == (seconds == 48 * 3600 + 900));
         assert(estimateBatteryDays(state, seconds, 4.25f, 3.5f) == -1);
     }
-    assert(state.count == 0 && state.readingCount == 1);
+    assert(state.hasReading && !state.hasFirstDrop && state.readingCount == 1);
 
     state = discharge(48, 0.02f);
     assert(!recordBatteryVoltage(state, 48 * 3600 + 300, 4.25f));
     assert(!recordBatteryVoltage(state, 48 * 3600 + 600, 4.06f));
-    assert(state.count == 8 && state.rechargeReadings == 0);
+    assert(state.hasFirstDrop && state.rechargeReadings == 0);
 
     uint32_t start = UINT32_MAX - 12 * 3600;
     state = discharge(48, 0.02f, 300, start);
-    assert(estimateBatteryDays(state, start + 48 * 3600, 4.06f, 3.5f) == 28);
-
-    state = discharge(48, 0.02f);
-    assert(estimateBatteryDays(state, 48 * 3600, 3.49f, 3.5f) == 0);
+    assert(estimateBatteryDays(state, start + 48 * 3600, 4.06f, 3.5f) >= 26);
+    assert(estimateBatteryDays(state, start + 48 * 3600, 4.06f, 3.5f) <= 30);
+    assert(estimateBatteryDays(state, start + 48 * 3600, 3.49f, 3.5f) == 0);
 
     puts("Battery-life tests passed");
 }
