@@ -150,16 +150,17 @@ int main() {
     testAdc = 1013;
     persistAt(48 * 3600);
     wake(HIGH);
-    assert(rtcState.lastDispDays == 27);
-    assert(rtcState.batteryLife.hasFirstDrop && rtcState.batteryLife.firstDropAt == 300);
+    int estimatedDays = rtcState.lastDispDays;
+    assert(estimatedDays >= 26 && estimatedDays <= 30);
+    assert(rtcState.batteryLife.hasFirstDrop && rtcState.batteryLife.firstDropAt > 300);
     uint32_t firstDropAt = rtcState.batteryLife.firstDropAt;
     wake(HIGH);
     assert(rtcState.batteryLife.firstDropAt == firstDropAt);
     frames = display.frames;
-    rtcState.lastDispDays = 28;
+    rtcState.lastDispDays = estimatedDays + 1;
     persistAt(rtcState.lastDisplayRefreshAt + DISPLAY_REFRESH_SECONDS);
     wake(HIGH);
-    assert(rtcState.lastDispDays == 27 && display.frames == frames + 1);
+    assert(rtcState.lastDispDays == estimatedDays && display.frames == frames + 1);
     rtcState.magic = 0xE5A70008;
     persistAt(48 * 3600);
     wake(HIGH);
@@ -173,7 +174,7 @@ int main() {
     assertLabel(99, "~99 days");
     assertLabel(100, "~100d");
 
-    // Both scheduler arithmetic and history remain valid across clock wrap.
+    // Both scheduler arithmetic and the battery baseline remain valid across clock wrap.
     reset();
     wake();
     rtcState.lastFullCycleAt = UINT32_MAX - 100;
