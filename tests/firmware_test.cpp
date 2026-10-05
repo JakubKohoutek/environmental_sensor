@@ -67,7 +67,7 @@ int main() {
     assert(wake().seconds == 10);
     assert(WiFi.connections == 1 && sensorReads == 1);
     assert(display.powerSave);
-    assert(rtcState.batteryLife.readingCount == 1);
+    assert(rtcState.batteryLife.hasReading && !rtcState.batteryLife.hasFirstDrop);
     for (int i = 0; i < 29; ++i) assert(wake().seconds == 10);
     assert(sensorReads == 1 && WiFi.connections == 1);
     wake();
@@ -147,22 +147,24 @@ int main() {
     for (uint32_t time = 0; time <= 48 * 3600; time += 300) {
         recordBatteryVoltage(rtcState.batteryLife, time, 4.1f - 0.02f * time / 86400.0f);
     }
+    testAdc = 1013;
     persistAt(48 * 3600);
     wake(HIGH);
-    assert(rtcState.lastDispDays == 28);
-    assert(rtcState.batteryLife.count == 8);
-    unsigned count = rtcState.batteryLife.count;
+    int estimatedDays = rtcState.lastDispDays;
+    assert(estimatedDays >= 26 && estimatedDays <= 30);
+    assert(rtcState.batteryLife.hasFirstDrop && rtcState.batteryLife.firstDropAt > 300);
+    uint32_t firstDropAt = rtcState.batteryLife.firstDropAt;
     wake(HIGH);
-    assert(rtcState.batteryLife.count == count);
+    assert(rtcState.batteryLife.firstDropAt == firstDropAt);
     frames = display.frames;
-    rtcState.lastDispDays = 27;
+    rtcState.lastDispDays = estimatedDays + 1;
     persistAt(rtcState.lastDisplayRefreshAt + DISPLAY_REFRESH_SECONDS);
     wake(HIGH);
-    assert(rtcState.lastDispDays == 28 && display.frames == frames + 1);
+    assert(rtcState.lastDispDays == estimatedDays && display.frames == frames + 1);
     rtcState.magic = 0xE5A70008;
     persistAt(48 * 3600);
     wake(HIGH);
-    assert(rtcState.magic == RTC_MAGIC && rtcState.batteryLife.count == 0);
+    assert(rtcState.magic == RTC_MAGIC && !rtcState.batteryLife.hasFirstDrop);
     assert(rtcState.lastDispDays == -1);
 
     assertLabel(-1, "-- days");
@@ -172,7 +174,7 @@ int main() {
     assertLabel(99, "~99 days");
     assertLabel(100, "~100d");
 
-    // Both scheduler arithmetic and history remain valid across clock wrap.
+    // Both scheduler arithmetic and the battery baseline remain valid across clock wrap.
     reset();
     wake();
     rtcState.lastFullCycleAt = UINT32_MAX - 100;

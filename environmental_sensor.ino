@@ -92,7 +92,7 @@ struct RtcState {
     uint32_t magic;
 };
 
-#define RTC_MAGIC 0xE5A70009
+#define RTC_MAGIC 0xE5A7000B
 #define RTC_ADDR  0
 
 static_assert(sizeof(RtcState) <= 512, "RTC state exceeds ESP8266 user memory");

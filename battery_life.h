@@ -4,30 +4,30 @@
 #include <stdint.h>
 
 constexpr uint32_t BATTERY_READING_SECONDS = 300;
-constexpr uint32_t BATTERY_BUCKET_SECONDS = 6 * 60 * 60;
-constexpr uint32_t BATTERY_HISTORY_SIZE = 29;
-
-struct BatterySample {
-    uint32_t seconds;
-    float voltage;
-};
+constexpr uint32_t BATTERY_AVERAGE_SAMPLES = 6;
+constexpr float BATTERY_FIRST_DROP_VOLTS = 0.012f;
+constexpr float BATTERY_ESTIMATE_DROP_VOLTS = 0.02f;
 
 struct BatteryLifeState {
-    BatterySample history[BATTERY_HISTORY_SIZE];
-    uint32_t count;
-    uint32_t next;
-    uint32_t bucketStartedAt;
-    uint32_t lastReadingAt;
+    float readings[BATTERY_AVERAGE_SAMPLES];
     uint32_t readingCount;
-    uint32_t offsetSum;
-    float voltageSum;
+    uint32_t nextReading;
+    float smoothedVoltage;
+    uint32_t lastReadingAt;
+    float initialVoltage;
+    uint32_t firstDropAt;
+    float firstDropVoltage;
+    float lowestVoltage;
     uint32_t rechargeReadings;
+    uint32_t hasReading;
+    uint32_t hasFirstDrop;
 };
 
-// Returns true when a sustained voltage rise resets the discharge history.
+// Returns true when a sustained voltage rise resets the discharge baseline.
 bool recordBatteryVoltage(BatteryLifeState& state, uint32_t now, float voltage);
 
-// -1 means learning, recharging, or no reliable downward trend.
+// -1 means no meaningful first drop, insufficient decline, or suspected recharge.
+// The voltage argument is the latest raw reading, used for an immediate cutoff check.
 int estimateBatteryDays(const BatteryLifeState& state, uint32_t now,
                         float voltage, float cutoff);
 

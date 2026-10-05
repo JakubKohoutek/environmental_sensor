@@ -74,12 +74,11 @@ This is an Arduino IDE project targeting ESP8266. The sketch is `environmental_s
 
 ### Battery-life estimate
 - Hardware measures voltage, not current; days remaining means an approximate time to the 3.5 V cutoff, not true remaining capacity.
-- `recordBatteryVoltage()` samples before sensor/WiFi activity at most once every 300s, avoiding weighting busy-room 3s wakes more heavily than idle 10s wakes.
-- Six-hour averages and their mean sample timestamps enter a 29-entry RTC ring buffer spanning roughly one week.
-- `estimateBatteryDays()` uses linear regression with at least five averages spanning 24 hours (normally ~30 hours initial learning). Both endpoint and fitted voltage drops must reach 0.01 V.
-- `-1` is unknown (learning, flat/rising/noisy trend or suspected recharge); the display shows `-- days`. Valid estimates render `~28 days`, `<1 day`, or compact `~100d`.
-- Three consecutive samples >=0.15 V above the lowest stored average reset history after a sustained recharge. A single spike suppresses the estimate temporarily but does not discard history.
-- History survives deep sleep; power removal or an RTC layout change resets it. Li-ion nonlinearity, load/temperature effects and sleep-clock drift limit accuracy.
+- `recordBatteryVoltage()` accepts readings before sensor/WiFi activity at most once every 300s, avoiding weighting busy-room 3s wakes more heavily than idle 10s wakes. A six-reading rolling average (about 25 minutes of samples) smooths the estimator input; the immediate raw reading still governs low-battery mode.
+- The first full average is the reference. The first averaged reading at least 0.012 V below it fixes a voltage/time baseline in RTC memory. After another 0.02 V averaged drop, `estimateBatteryDays()` divides the drop since that baseline by elapsed hours, then extrapolates the averaged voltage to the cutoff. The baseline does not roll forward.
+- `-1` is unknown (waiting for the average or sufficient decline, flat/rising relative to the baseline, or suspected recharge); the display shows `-- days`. Valid estimates render `~28 days`, `<1 day`, or compact `~100d`.
+- Three consecutive samples >=0.15 V above the lowest measured voltage reset the baseline after a sustained recharge. A single spike suppresses the estimate temporarily but does not discard the baseline.
+- The baseline survives deep sleep; power removal or an RTC layout change resets it. Li-ion nonlinearity, ADC noise, load/temperature effects and sleep-clock drift limit accuracy.
 
 ### MQTT Discovery
 - Publishes Home Assistant auto-discovery messages on first MQTT connect
@@ -91,17 +90,17 @@ State persisted across deep sleep cycles via `RtcState` struct:
 - Elapsed-time scheduler, subsecond awake remainder, cached sensor data, battery voltage
 - WiFi BSSID/channel for fast reconnect
 - Last published values for adaptive publish
-- Battery voltage history ring (29 six-hour averages), sample accumulator and recharge detection
+- Six-reading battery average, first-drop voltage/time baseline, lowest observed voltage and recharge detection
 - Discovery published flag
 - Low-battery warning flash state (toggled each wake while PIR HIGH)
 - Display state, last-motion/refresh timestamps and rendered-value cache
-- Magic number for validity check (0xE5A70009); upgrading resets the old layout
-- Compile-time assertions enforce word alignment and the 512-byte RTC user-memory limit (current layout: 396 bytes)
+- Magic number for validity check (0xE5A7000B); upgrading resets the old layout
+- Compile-time assertions enforce word alignment and the 512-byte RTC user-memory limit (current layout: 200 bytes)
 
 ### Modules
 - **`sensors.h/cpp`**: AHT20 (I2C 0x38) + BMP280 (I2C 0x76, falls back to 0x77) reading with temperature offset, humidity calibration (linear + Magnus), sea-level pressure calculation (235m altitude). Shared `SensorData` struct. BMP280 runs in FORCED mode so it sleeps between reads.
 - **`display.h/cpp`**: dimmed 1.3" SH1106 OLED via U8g2. Four-quadrant layout: temp (top-left), humidity (top-right), estimated battery days (bottom-left), battery icon + voltage (bottom-right). Dedicated full-screen low-battery warning view (crossed-out battery icon + voltage).
-- **`battery_life.h/cpp`**: RTC-compatible voltage history, six-hour averaging, recharge detection, and days-to-cutoff regression; no sensor or network dependencies.
+- **`battery_life.h/cpp`**: RTC-compatible rolling voltage average, fixed first-drop baseline, recharge detection, and elapsed-time days-to-cutoff extrapolation; no sensor or network dependencies.
 - **`mqtt.h/cpp`**: MQTT topic defines and shared PubSubClient instance.
 - **`debug.h`**: `DBG_*` logging macros gated by `#define DEBUG` — compile-time opt-out of Serial output.
 
