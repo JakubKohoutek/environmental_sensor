@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
 #include <string>
 #include <vector>
 
@@ -27,6 +28,10 @@ struct TestRect {
 struct U8G2_SH1106_128X64_NONAME_F_HW_I2C {
     int contrast = 255;
     bool powerSave = false;
+    bool interfaceReady = false;
+    unsigned panelInitializations = 0;
+    unsigned interfaceInitializations = 0;
+    unsigned powerOffCommands = 0;
     int fontWidth = 6;
     unsigned frames = 0;
     std::vector<TestText> text;
@@ -34,11 +39,22 @@ struct U8G2_SH1106_128X64_NONAME_F_HW_I2C {
     std::vector<TestRect> outlines;
     unsigned verticalLines = 0;
     U8G2_SH1106_128X64_NONAME_F_HW_I2C(int, int) {}
-    void begin() { powerSave = false; contrast = 255; }
-    void setContrast(int value) { contrast = value; }
-    void setPowerSave(int value) { powerSave = value; }
+    void initInterface() { interfaceReady = true; ++interfaceInitializations; }
+    void initDisplay() {
+        initInterface();
+        ++panelInitializations;
+        powerSave = true;
+        contrast = 255;
+    }
+    void begin() { initDisplay(); clearBuffer(); sendBuffer(); setPowerSave(0); }
+    void setContrast(int value) { assert(interfaceReady); contrast = value; }
+    void setPowerSave(int value) {
+        assert(interfaceReady);
+        if (value) ++powerOffCommands;
+        powerSave = value;
+    }
     void clearBuffer() { text.clear(); boxes.clear(); outlines.clear(); verticalLines = 0; }
-    void sendBuffer() { ++frames; }
+    void sendBuffer() { assert(interfaceReady); ++frames; }
     void setFont(int font) { fontWidth = font; }
     int getStrWidth(const char* value) { return strlen(value) * fontWidth; }
     void drawStr(int x, int y, const char* value) {

@@ -7,16 +7,23 @@
 // 1.3" 128x64 I2C OLED (SH1106 driver)
 U8G2_SH1106_128X64_NONAME_F_HW_I2C display(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 
+void prepareDisplay(bool retainedState) {
+    if (retainedState) {
+        display.initInterface();
+    } else {
+        display.initDisplay();
+    }
+}
+
 void initiateDisplay() {
-    display.begin();
     display.setContrast(64);
+    display.setPowerSave(0);
 }
 
 void clearDisplay() {
-    initiateDisplay();
+    display.setPowerSave(1);
     display.clearBuffer();
     display.sendBuffer();
-    display.setPowerSave(1);
 }
 
 int batteryPercentage(float voltage) {

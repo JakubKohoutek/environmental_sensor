@@ -17,7 +17,7 @@ This is an Arduino IDE project targeting ESP8266. The sketch is `environmental_s
 - **Upload + monitor**: `scripts/upload.sh -c`
 - **OTA upload**: compile first, request OTA from Home Assistant, then `bash scripts/upload-ota.sh <OLED-IP>`. Uses the installed ESP8266 `espota.py` with system `python3` rather than the bundled interpreter and CLI network-port discovery. Optional upload password comes from the `OTA_PASSWORD` environment variable.
 - **Monitor only**: `scripts/monitor.sh`
-- **Native tests**: `bash scripts/test.sh` (C++11 compiler; percentage, display, scheduling, and OTA request/timeout/error/progress behavior with hardware stubs)
+- **Native tests**: `bash scripts/test.sh` (C++11 compiler; percentage, display retention/interface restoration across wakes, cold-start initialization, scheduling, and OTA request/timeout/error/progress behavior with hardware stubs)
 
 ### Required Libraries
 
@@ -43,9 +43,11 @@ This is an Arduino IDE project targeting ESP8266. The sketch is `environmental_s
 - On PIR HIGH, the OLED is painted and retains that frame across sleeps; the lit panel still consumes power.
 - Each PIR HIGH renews `DISPLAY_ON_SECONDS` (30s). Continuous motion can keep the panel lit.
 - `initiateDisplay()` sets contrast to 64/255, including warning screens.
+- `setup()` calls `prepareDisplay()` on every boot: valid RTC state selects U8g2 `initInterface()` (restores MCU-side I2C without resetting the panel); invalid RTC state selects `initDisplay()` (full initialization, panel left off). No extra RTC fields are needed.
+- `initiateDisplay()` only sets contrast and exits power-save; redraws do not reinitialize or clear the hardware panel first. `clearDisplay()` enters power-save before clearing the frame, without briefly turning it on. The interface is restored even on wakes that only turn the display off or show a low-battery/OTA screen.
 - Sensors refresh on the `DISPLAY_REFRESH_SECONDS` schedule (~15s); display redraws are skipped unless visible readings or the battery percentage change.
 - MQTT publishing stays on the normal 5-min cadence — PIR transitions do not trigger extra publishes. The published motion flag reflects current display-active state.
-- At timeout, `clearDisplay()` clears and power-saves the OLED, and polling returns to 10-second idle sleeps.
+- At timeout, `clearDisplay()` power-saves the OLED before clearing its frame, and polling returns to 10-second idle sleeps.
 
 **Low battery mode** (< 3.5V):
 - Skips WiFi, sensor reads, and active mode — the device wakes every 10s while idle to check the PIR

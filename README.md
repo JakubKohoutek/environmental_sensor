@@ -68,7 +68,7 @@ The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the
 
 ### Native Tests
 
-Run `bash scripts/test.sh` with a C++11 compiler (`c++`). Tests cover battery percentage, icon fill, layout, redraws, scheduling, and MQTT-triggered OTA (command clearing, timeout, low battery, errors, WiFi loss, and upload progress) using hardware stubs. Build for the board with:
+Run `bash scripts/test.sh` with a C++11 compiler (`c++`). Tests cover battery percentage, icon fill, layout, redraws, panel retention and interface restoration across wakes, cold-start initialization, scheduling, and MQTT-triggered OTA (command clearing, timeout, low battery, errors, WiFi loss, and upload progress) using hardware stubs. Build for the board with:
 
 ```bash
 arduino-cli compile --fqbn esp8266:esp8266:d1_mini --libraries ~/Documents/Arduino/libraries .
@@ -110,11 +110,12 @@ Serial logging is off by default. For diagnosis, compile with `--build-property 
 ### Display-Active Mode (motion detected)
 - MCU switches to 3-second sleep cycles — the OLED retains its frame across deep sleeps, but **continues consuming power while lit**.
 - PIR HIGH on any wake renews a roughly 30-second display timeout. Continuous motion can still keep the display on.
-- OLED contrast is set to **64/255** on each initialization, including the low-battery warning.
+- OLED contrast is set to **64/255** whenever a screen is shown, including the low-battery warning.
+- On every wake, the MCU restores the OLED communication interface without resetting the powered panel. Full panel initialization happens only when RTC state is invalid (such as a fresh startup); reading refreshes no longer briefly switch the screen off and on.
 - Sensors + display redraw every ~15 seconds while the display is lit
 - Redraws are skipped when the visible readings and battery percentage are unchanged.
 - MQTT stays on the normal 5-minute cadence — PIR events do not trigger extra publishes; the motion flag included in each publish reflects whether the display is currently active.
-- After the timeout the OLED is cleared and put into power-save mode, and the device returns to 10-second idle sleeps.
+- After the timeout the OLED is put into power-save mode before its image is cleared, avoiding a brief flash. The device returns to 10-second idle sleeps.
 - Scheduling tracks elapsed sleep and awake time rather than counting wakes, so changing sleep intervals does not change the reporting cadence.
 
 ### Low Battery Mode (< 3.5V)

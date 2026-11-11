@@ -24,6 +24,7 @@ static void reset() {
     WiFi = {};
     ArduinoOTA = {};
     mqttClient = PubSubClient(wifiClient);
+    display = U8G2_SH1106_128X64_NONAME_F_HW_I2C(U8G2_R0, U8X8_PIN_NONE);
     rtcState = {};
     sensorData = {};
     sensorReads = 0;
@@ -38,6 +39,8 @@ static Sleep wake(int pir = LOW) {
     // Globals are reinitialized by the real processor on every deep-sleep boot.
     rtcState = {};
     sensorData = {};
+    // The MCU's interface state is lost, but the powered OLED retains its frame.
+    display.interfaceReady = false;
     try {
         setup();
     } catch (const Sleep& sleep) {
@@ -116,6 +119,39 @@ int main() {
     assert(rtcState.lastFullCycleAt >= 300 && rtcState.lastFullCycleAt < 310);
 
     reset();
+    wake(HIGH);
+    assert(display.panelInitializations == 1 && !display.powerSave);
+    unsigned panelInitializations = display.panelInitializations;
+    unsigned interfaceInitializations = display.interfaceInitializations;
+    unsigned powerOffCommands = display.powerOffCommands;
+    unsigned retainedFrames = display.frames;
+    wake(HIGH);
+    assert(display.interfaceInitializations == interfaceInitializations + 1);
+    assert(display.frames == retainedFrames && !display.powerSave);
+
+    // Force changed visible data after a deep-sleep boot, not just an unchanged frame.
+    rtcState.lastDispTemp -= 1;
+    persistAt(rtcState.lastDisplayRefreshAt + DISPLAY_REFRESH_SECONDS);
+    wake(HIGH);
+    assert(display.frames == retainedFrames + 1 && !display.powerSave);
+    assert(display.panelInitializations == panelInitializations);
+    assert(display.powerOffCommands == powerOffCommands);
+
+    persistAt(rtcState.lastMotionAt + DISPLAY_ON_SECONDS);
+    wake();
+    assert(display.powerSave && display.powerOffCommands == powerOffCommands + 1);
+    wake(HIGH);
+    assert(!display.powerSave && display.contrast == 64);
+    assert(display.panelInitializations == panelInitializations);
+    assert(display.powerOffCommands == powerOffCommands + 1);
+
+    rtcState.magic = 0;
+    persistAt(rtcState.elapsedSeconds);
+    wake(HIGH);
+    assert(display.panelInitializations == panelInitializations + 1);
+    assert(!display.powerSave);
+
+    reset();
     wake();
     assert(wake(HIGH).seconds == 3);
     assert(rtcState.displayOn && display.contrast == 64 && !display.powerSave);
@@ -180,6 +216,7 @@ int main() {
     testAdc = 1000;
     wake();
     assert(!rtcState.lowBatteryWarningShown && display.powerSave);
+    assert(display.panelInitializations == 1);
 
     reset();
     testAdc = 950;
@@ -257,6 +294,7 @@ int main() {
     mqttClient.retainedCommand = "START";
     ArduinoOTA.duringHandle = []() {
         assert(!display.powerSave && display.contrast == 64);
+        assert(display.panelInitializations == 1);
         assert(hasText("OTA update") && hasText("192.168.68.123"));
         if (ArduinoOTA.handles == 1) assert(hasText("Waiting: 300s"));
     };

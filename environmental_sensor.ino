@@ -13,9 +13,7 @@
 #define DISPLAY_ON_SECONDS       30
 #define DISPLAY_REFRESH_SECONDS  15
 
-// Display redraw thresholds — only repaint when the rendered digits would
-// actually change. `display.begin()` sends a DISPLAY_OFF→DISPLAY_ON pair
-// that visibly flickers the OLED, so we avoid calling it on unchanged data.
+// Only repaint when the rendered digits would actually change.
 #define DISP_TEMP_THRESHOLD      0.05f   // matches %.1f rendering
 #define DISP_HUM_THRESHOLD       0.05f
 #define DISP_BATT_THRESHOLD      0.005f  // matches %.2f rendering
@@ -420,9 +418,7 @@ void displayActiveWake(bool firstPirDetection) {
         fullSensorCycle();
         rtcState.lastDisplayRefreshAt = nowSeconds();
 
-        // Only repaint the OLED when something visible has changed —
-        // `display.begin()` inside initiateDisplay() flickers the panel,
-        // so we avoid calling it when the rendered frame would be identical.
+        // Avoid an I2C frame transfer when the visible readings are unchanged.
         bool needRedraw = firstPirDetection ||
             ((bool)sensorData.ahtOk != (bool)rtcState.lastDispAhtOk) ||
             (sensorData.ahtOk && (
@@ -472,6 +468,7 @@ void setup() {
 
     // Load RTC state
     ESP.rtcUserMemoryRead(RTC_ADDR, (uint32_t*)&rtcState, sizeof(rtcState));
+    prepareDisplay(rtcState.magic == RTC_MAGIC);
     if (rtcState.magic != RTC_MAGIC) {
         memset(&rtcState, 0, sizeof(rtcState));
         rtcState.magic = RTC_MAGIC;
