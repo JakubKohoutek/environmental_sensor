@@ -5,7 +5,7 @@
 #include "display.h"
 #include "mqtt.h"
 #include "debug.h"
-#include "battery_life.h"
+#include "ota_update.h"
 
 #define IDLE_SLEEP_SECONDS       10
 #define ACTIVE_SLEEP_SECONDS     3
@@ -87,12 +87,10 @@ struct RtcState {
     float    lastDispHum;
     float    lastDispBatt;
     uint32_t lastDispAhtOk;
-    int32_t  lastDispDays;
-    BatteryLifeState batteryLife;
     uint32_t magic;
 };
 
-#define RTC_MAGIC 0xE5A7000B
+#define RTC_MAGIC 0xE5A7000E
 #define RTC_ADDR  0
 
 static_assert(sizeof(RtcState) <= 512, "RTC state exceeds ESP8266 user memory");
@@ -214,29 +212,11 @@ void publishDiscovery() {
         mqttClient.publish(topic, payload, true);
     }
 
+    publishOtaDiscovery(deviceJson);
     DBG_PRINTLN("[MQTT] Discovery published");
 }
 
 // ── MQTT Publish ──────────────────────────────────────────────────
-
-bool connectMqtt() {
-    mqttClient.setServer(MQTT_SERVER, MQTT_PORT);
-
-    String clientId = "ENV_SENSOR_" + String(ESP.getChipId(), HEX);
-    bool connected;
-    #ifdef MQTT_USER
-        connected = mqttClient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS,
-                                        MQTT_AVAILABLE_TOPIC, 0, true, "offline");
-    #else
-        connected = mqttClient.connect(clientId.c_str(),
-                                        MQTT_AVAILABLE_TOPIC, 0, true, "offline");
-    #endif
-
-    if (!connected) {
-        DBG_PRINTLN("[MQTT] Connection failed, rc=" + String(mqttClient.state()));
-    }
-    return connected;
-}
 
 void flushMqtt() {
     unsigned long start = millis();
@@ -290,6 +270,8 @@ void publishSensorData(bool motionOn) {
     flushMqtt();
 
     rtcState.skipCount = 0;
+
+    if (checkOtaRequest(rtcState.batteryVoltage)) rtcState.displayOn = 0;
 
     mqttClient.disconnect();
     DBG_PRINTLN("[MQTT] Published");
@@ -441,25 +423,22 @@ void displayActiveWake(bool firstPirDetection) {
         // Only repaint the OLED when something visible has changed —
         // `display.begin()` inside initiateDisplay() flickers the panel,
         // so we avoid calling it when the rendered frame would be identical.
-        int days = estimateBatteryDays(rtcState.batteryLife, nowSeconds(),
-                                       rtcState.batteryVoltage, VBAT_LOW);
         bool needRedraw = firstPirDetection ||
             ((bool)sensorData.ahtOk != (bool)rtcState.lastDispAhtOk) ||
             (sensorData.ahtOk && (
                 fabs(sensorData.temperature - rtcState.lastDispTemp) >= DISP_TEMP_THRESHOLD ||
                 fabs(sensorData.humidity    - rtcState.lastDispHum)  >= DISP_HUM_THRESHOLD)) ||
             fabs(rtcState.batteryVoltage - rtcState.lastDispBatt) >= DISP_BATT_THRESHOLD ||
-            days != rtcState.lastDispDays;
+            batteryPercentage(rtcState.batteryVoltage) != batteryPercentage(rtcState.lastDispBatt);
 
         if (needRedraw) {
             DBG_PRINTLN(firstPirDetection ? "[MODE] PIR — display on" : "[MODE] Display refresh");
             initiateDisplay();
-            updateDisplay(rtcState.batteryVoltage, days);
+            updateDisplay(rtcState.batteryVoltage);
             rtcState.lastDispTemp  = sensorData.temperature;
             rtcState.lastDispHum   = sensorData.humidity;
             rtcState.lastDispBatt  = rtcState.batteryVoltage;
             rtcState.lastDispAhtOk = sensorData.ahtOk;
-            rtcState.lastDispDays  = days;
         } else {
             DBG_PRINTLN("[MODE] Display unchanged — skipping redraw");
         }
@@ -502,9 +481,6 @@ void setup() {
 
     // Check battery early
     readBattery();
-    if (recordBatteryVoltage(rtcState.batteryLife, nowSeconds(), rtcState.batteryVoltage)) {
-        DBG_PRINTLN("[BATT] Recharge detected — history reset");
-    }
     if (rtcState.batteryVoltage < VBAT_LOW) {
         lowBatteryMode(); // Never returns — sleeps
     }

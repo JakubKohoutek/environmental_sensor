@@ -17,27 +17,41 @@ struct TestText {
     std::string value;
 };
 
+struct TestRect {
+    int x;
+    int y;
+    int width;
+    int height;
+};
+
 struct U8G2_SH1106_128X64_NONAME_F_HW_I2C {
     int contrast = 255;
     bool powerSave = false;
     int fontWidth = 6;
     unsigned frames = 0;
     std::vector<TestText> text;
+    std::vector<TestRect> boxes;
+    std::vector<TestRect> outlines;
+    unsigned verticalLines = 0;
     U8G2_SH1106_128X64_NONAME_F_HW_I2C(int, int) {}
     void begin() { powerSave = false; contrast = 255; }
     void setContrast(int value) { contrast = value; }
     void setPowerSave(int value) { powerSave = value; }
-    void clearBuffer() { text.clear(); }
+    void clearBuffer() { text.clear(); boxes.clear(); outlines.clear(); verticalLines = 0; }
     void sendBuffer() { ++frames; }
     void setFont(int font) { fontWidth = font; }
     int getStrWidth(const char* value) { return strlen(value) * fontWidth; }
     void drawStr(int x, int y, const char* value) {
         text.push_back({x, y, getStrWidth(value), value});
     }
-    void drawFrame(int, int, int, int) {}
-    void drawBox(int, int, int, int) {}
+    void drawFrame(int x, int y, int width, int height) {
+        outlines.push_back({x, y, width, height});
+    }
+    void drawBox(int x, int y, int width, int height) {
+        boxes.push_back({x, y, width, height});
+    }
     void drawLine(int, int, int, int) {}
-    void drawVLine(int, int, int) {}
+    void drawVLine(int, int, int) { ++verticalLines; }
     void drawHLine(int, int, int) {}
 };
 

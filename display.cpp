@@ -19,12 +19,15 @@ void clearDisplay() {
     display.setPowerSave(1);
 }
 
-// Draw battery icon (16x8) with fill level
-// Range: 3.5V (empty/LDO cutoff) to 4.1V (full)
-void drawBatteryIcon(int x, int y, float voltage) {
-    int level = (int)((voltage - 3.5) / 0.6 * 12);
-    if (level < 0) level = 0;
-    if (level > 12) level = 12;
+int batteryPercentage(float voltage) {
+    if (voltage <= 3.6f) return 0;
+    if (voltage >= 4.05f) return 100;
+    return static_cast<int>((voltage - 3.6f) / (4.05f - 3.6f) * 100 + 0.5f);
+}
+
+/** Draws a 16x8 battery body with a 12-pixel fill based on a 0-100 percentage. */
+void drawBatteryIcon(int x, int y, int percentage) {
+    int level = percentage * 12 / 100;
 
     display.drawFrame(x, y, 16, 8);
     display.drawBox(x + 16, y + 2, 2, 4);
@@ -73,11 +76,20 @@ void showLowBatteryWarning(float batteryVoltage) {
     display.sendBuffer();
 }
 
-void updateDisplay(float batteryVoltage, int batteryDays) {
+void showOtaStatus(const char* title, const char* detail, const char* footer) {
+    display.clearBuffer();
+    display.setFont(u8g2_font_7x13B_tf);
+    drawCentered(0, 128, 16, title);
+    display.setFont(u8g2_font_6x10_tf);
+    drawCentered(0, 128, 36, detail);
+    drawCentered(0, 128, 56, footer);
+    display.sendBuffer();
+}
+
+void updateDisplay(float batteryVoltage) {
     display.clearBuffer();
 
-    // Layout: two columns (0-63, 65-127), top half 0-41, bottom half 43-63
-    display.drawVLine(64, 12, 52);
+    // Sensor readings above, voltage and battery percentage below.
     display.drawHLine(0, 42, 128);
 
     char val[16];
@@ -110,30 +122,20 @@ void updateDisplay(float batteryVoltage, int batteryDays) {
     }
     drawCentered(65, 63, 36, val);
 
-    // ── Estimated battery life — bottom left (0-63) ──
-    display.setFont(u8g2_font_7x13B_tf);
-    if (batteryDays < 0) {
-        snprintf(val, sizeof(val), "-- days");
-    } else if (batteryDays == 0) {
-        snprintf(val, sizeof(val), "<1 day");
-    } else if (batteryDays == 1) {
-        snprintf(val, sizeof(val), "~1 day");
-    } else if (batteryDays < 100) {
-        snprintf(val, sizeof(val), "~%d days", batteryDays);
-    } else {
-        snprintf(val, sizeof(val), "~%dd", batteryDays);
-    }
+    // Battery voltage, bottom left.
+    display.setFont(u8g2_font_6x10_tf);
+    snprintf(val, sizeof(val), "%.2fV", batteryVoltage);
     drawCentered(0, 64, 57, val);
 
-    // ── Battery — bottom right (65-127) ──
-    snprintf(val, sizeof(val), "%.2fV", batteryVoltage);
-    display.setFont(u8g2_font_6x10_tf);
+    // Battery icon and percentage, bottom right.
+    int percentage = batteryPercentage(batteryVoltage);
+    snprintf(val, sizeof(val), "%d%%", percentage);
     int vw = display.getStrWidth(val);
     int groupWidth = 18 + 5 + vw;
     int groupX = 65 + (63 - groupWidth) / 2;
     int centerY = 42 + (64 - 42) / 2;
 
-    drawBatteryIcon(groupX, centerY - 4, batteryVoltage);
+    drawBatteryIcon(groupX, centerY - 4, percentage);
     display.drawStr(groupX + 23, centerY + 4, val);
 
     display.sendBuffer();

@@ -1,6 +1,6 @@
 # Environmental Sensor
 
-Battery-powered environmental monitoring station built on a Wemos D1 Mini (ESP8266). Measures temperature, humidity, barometric pressure (sea-level adjusted), and detects motion. Uses deep sleep for long battery life, waking briefly to check sensors and publish data via MQTT with Home Assistant auto-discovery. A dimmed 1.3" OLED shows temperature, humidity, battery voltage, and estimated battery days remaining when motion is detected.
+Battery-powered environmental monitoring station built on a Wemos D1 Mini (ESP8266). Measures temperature, humidity, barometric pressure (sea-level adjusted), and detects motion. Uses deep sleep for long battery life, waking briefly to check sensors and publish data via MQTT with Home Assistant auto-discovery. A dimmed 1.3" OLED shows temperature, humidity, battery voltage, and battery percentage when motion is detected.
 
 ## Hardware
 
@@ -54,6 +54,7 @@ The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the
    #define MQTT_SERVER "homeassistant.local"
    #define MQTT_PORT   1883
    ```
+   Optionally define `OTA_PASSWORD` in the same private header to require a password for wireless uploads. Without it, ArduinoOTA does not require an upload password.
 
 3. Compile and upload:
    ```bash
@@ -67,11 +68,35 @@ The HT7330 LDO regulates the battery (3.5-4.2V) to a stable 3.3V. Below 3.5V the
 
 ### Native Tests
 
-Run `bash scripts/test.sh` with a C++11 compiler (`c++`). Tests cover battery estimation and recharge handling, plus the actual sketch's scheduling and display code using hardware stubs. Build for the board with:
+Run `bash scripts/test.sh` with a C++11 compiler (`c++`). Tests cover battery percentage, icon fill, layout, redraws, scheduling, and MQTT-triggered OTA (command clearing, timeout, low battery, errors, WiFi loss, and upload progress) using hardware stubs. Build for the board with:
 
 ```bash
 arduino-cli compile --fqbn esp8266:esp8266:d1_mini --libraries ~/Documents/Arduino/libraries .
 ```
+
+### Wireless Updates (MQTT-triggered OTA)
+
+Install this firmware once over USB using `scripts/upload.sh -c`. Later updates can use WiFi without a hardware button:
+
+1. Compile the new firmware using the command above before requesting the update window.
+2. In Home Assistant, open **Air Quality → Bathroom → Environmental Sensor OTA** and press **Prepare OTA update**.
+3. Wait for **Last OTA status** to become `waiting`. The request is retained by MQTT while the sensor sleeps. With adaptive publishing, pickup can take about **30 minutes** under normal connectivity; failures can delay it further.
+4. The OLED shows **OTA update**, a **five-minute countdown**, and the device's IP address. During this window, upload from a computer on the same network:
+   ```bash
+   bash scripts/upload-ota.sh 192.168.68.50
+   ```
+   Use the IP shown on the OLED (the address above is an example); `environmental-sensor.local` also works if your computer resolves mDNS hostnames. The script uploads the last compiled binary using the installed ESP8266 `espota.py` with system `python3`, avoiding the bundled Python/network-discovery problems encountered with Arduino CLI uploads on this Mac. If `OTA_PASSWORD` is configured in firmware, set the same password in the shell's `OTA_PASSWORD` environment variable before running the script.
+5. The OLED shows upload progress and then **OTA complete** before rebooting into the new firmware. Keep OTA support in subsequent firmware to preserve wireless updates.
+
+The Home Assistant button opens the update window; it does not transfer a firmware file. Its entity is `button.environmental_sensor_prepare_ota`; the status entity is `sensor.environmental_sensor_ota_status`. These are auto-discovered and belong to the existing Environmental Sensor device. The button intentionally remains usable while the sensor sleeps.
+
+OTA requires a measured battery voltage of **at least 3.60 V**, even when USB is connected. A lower reading rejects and clears the request with `low_battery`; charge or replace the battery, then press the button again. Below the normal 3.5 V operating cutoff, WiFi is disabled entirely, so queued requests cannot be received.
+
+The firmware checks commands on existing MQTT connections, adding up to one second of listening without introducing extra WiFi wakeups. It clears an accepted retained request and waits for the broker's echo before entering OTA mode, preventing the same request from reopening the window after a reboot. If no upload starts within five minutes, the display turns off and normal sleep scheduling resumes. A started transfer may finish beyond that waiting deadline. Upload errors or WiFi loss also return to normal operation.
+
+The retained status reports `idle`, `waiting`, `updating`, `complete`, `timed_out`, `error`, `wifi_lost`, `low_battery`, or `request_failed`. It is the **last reported status**, not continuous availability: an abrupt power/network loss can leave it stale. Each subsequent MQTT connection reports `idle` before checking for another request. A request can be cancelled before pickup by publishing an empty retained payload to `environmental_sensor/ota/set`.
+
+Serial logging is off by default. For diagnosis, compile with `--build-property compiler.cpp.extra_flags=-DDEBUG=1` and monitor at 74880 baud; compile normally again to restore quiet operation.
 
 ## How It Works
 
@@ -87,7 +112,7 @@ arduino-cli compile --fqbn esp8266:esp8266:d1_mini --libraries ~/Documents/Ardui
 - PIR HIGH on any wake renews a roughly 30-second display timeout. Continuous motion can still keep the display on.
 - OLED contrast is set to **64/255** on each initialization, including the low-battery warning.
 - Sensors + display redraw every ~15 seconds while the display is lit
-- Redraws are skipped when the visible readings and estimated day count are unchanged.
+- Redraws are skipped when the visible readings and battery percentage are unchanged.
 - MQTT stays on the normal 5-minute cadence — PIR events do not trigger extra publishes; the motion flag included in each publish reflects whether the display is currently active.
 - After the timeout the OLED is cleared and put into power-save mode, and the device returns to 10-second idle sleeps.
 - Scheduling tracks elapsed sleep and awake time rather than counting wakes, so changing sleep intervals does not change the reporting cadence.
@@ -99,22 +124,24 @@ arduino-cli compile --fqbn esp8266:esp8266:d1_mini --libraries ~/Documents/Ardui
 - Warning flashes use 3-second sleeps and the same reduced OLED contrast.
 - When motion stops the display is cleared and the device just cycles PIR checks silently
 
-### Estimated Battery Life
+### Battery Percentage
 
-The bottom-left quadrant shows an approximate number of days until the **3.5 V low-battery cutoff**, for example `~28 days`. It is based on voltage history, not measured current or remaining battery capacity.
+The battery icon has a percentage beside it, calculated linearly from the current battery voltage:
 
-- Samples battery voltage at most once every 5 minutes before sensor/WiFi activity, independently of display activity and skipped MQTT publishes. The estimator uses a rolling average of six accepted readings (about 25 minutes between oldest and newest); the low-battery safety check still uses the immediate voltage reading.
-- The first full average is the reference. The first averaged decrease of at least 0.012 V fixes a voltage/time baseline. Once the averaged voltage has fallen another 0.02 V, the estimator divides that drop by the elapsed hours and extrapolates from the current averaged voltage to 3.5 V. The baseline stays fixed as the observation period grows.
-- Shows `-- days` while the initial average is filling, until enough decline is measured, while voltage is flat or rising relative to the first drop, or during a suspected recharge. A valid estimate rounding below one day shows `<1 day`; values of 100 days or more use compact text such as `~100d`.
-- Resets the baseline after three consecutive samples at least 0.15 V above the lowest measured voltage, indicating a sustained recharge. A single high reading temporarily suppresses the estimate without discarding the baseline.
-- The average and baseline survive deep sleep but are lost on power removal. Installing this firmware resets the previous RTC layout and starts learning again.
+- **3.60 V or below: 0%**, with an empty icon.
+- **4.05 V or above: 100%**, with a full icon.
+- Between those limits: `(voltage - 3.60) / (4.05 - 3.60) * 100`, rounded to the nearest whole percent. For example, 3.87 V shows 60%.
+- The icon uses the same percentage, scaled to its 12-pixel interior width.
 
-Li-ion voltage is nonlinear and affected by temperature, load, and recovery after load. Averaging and the minimum-drop requirement reduce ADC-driven jumps but cannot eliminate them. The result is a rough indication, not a guaranteed runtime. Sleep-clock drift also affects the estimated elapsed time.
+This is a voltage-based indicator, not a measurement of true remaining capacity. It replaces the days-to-depletion estimate and needs no voltage history or learning period. Voltage is still averaged over two ADC samples on each wake. Installing this firmware resets the previous RTC layout.
+
+The **3.5 V low-battery operating cutoff is unchanged**: at 3.59 V, the normal screen shows 0%, but low-power warning mode starts only below 3.5 V. MQTT continues to report battery voltage in volts, so existing Home Assistant automations are unchanged.
 
 ### Features
 - **Sea-level pressure**: raw BMP280 reading adjusted for 235m station altitude
-- **Battery-life estimate**: first-drop voltage trend extrapolated to the low-battery cutoff
+- **Battery percentage**: voltage-based 0-100% indicator with matching battery icon fill
 - **MQTT auto-discovery**: Home Assistant sensors appear automatically, no manual YAML needed
+- **MQTT-triggered OTA**: retained update request, five-minute awake window, OLED countdown/IP/progress, and Home Assistant controls
 - **Watchdog timer**: 8-second hardware WDT prevents hangs
 - **WiFi fast connect**: caches router BSSID/channel for ~1s connection time
 - **Low-power sensing**: AHT20 draws ~1 µA idle, BMP280 runs in FORCED mode (~0.1 µA between reads)
@@ -131,28 +158,32 @@ Li-ion voltage is nonlinear and affected by temperature, load, and recovery afte
 | `environmental_sensor/battery` | Publish | Battery voltage in V |
 | `environmental_sensor/motion` | Publish | PIR state: ON / OFF |
 | `environmental_sensor/available` | Publish | Online status (LWT) |
+| `environmental_sensor/ota/set` | Subscribe / clear | Retained `START` requests an OTA window; device clears it before starting |
+| `environmental_sensor/ota/status` | Publish | Retained last OTA status |
 
 ### Home Assistant
 
 Sensors are auto-discovered via MQTT. No manual configuration needed — just ensure the MQTT integration is set up in Home Assistant.
 
+The **Air Quality → Bathroom** dashboard includes an **Environmental Sensor OTA** card with the update-request button and last status. On a new Home Assistant installation, add `button.environmental_sensor_prepare_ota` and `sensor.environmental_sensor_ota_status` to the desired dashboard after discovery.
+
 ## Display
 
-The 1.3" OLED shows a four-quadrant layout:
+The 1.3" OLED shows sensor readings above a horizontal divider and battery information below it, with no vertical divider:
 
 ```
-┌──────────────┬──────────────┐
-│  Temp °C     │  Hum %       │
-│     22.9     │     53.2     │
-├──────────────┼──────────────┤
-│  ~28 days    │ [████] 3.87V │
-│             │              │
-└──────────────┴──────────────┘
+┌─────────────────────────────┐
+│  Temp °C        Hum %       │
+│     22.9          53.2      │
+├─────────────────────────────┤
+│   3.87V         [███  ] 60% │
+│                             │
+└─────────────────────────────┘
 ```
 
 - **Top left**: Temperature
 - **Top right**: Humidity
-- **Bottom left**: Estimated battery days remaining (`-- days` while learning)
-- **Bottom right**: Battery icon (3.5-4.1V range) with voltage
+- **Bottom left**: Battery voltage
+- **Bottom right**: Battery icon with percentage (3.60 V = 0%, 4.05 V = 100%)
 
 Sea-level pressure remains available over MQTT.

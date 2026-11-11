@@ -19,6 +19,10 @@ public:
     String(uint32_t value, int) : std::string(std::to_string(value)) {}
 };
 
+struct TestAddress {
+    String toString() { return String(std::string("192.168.68.123")); }
+};
+
 extern uint32_t testMillis;
 extern int testPir;
 extern int testAdc;
@@ -73,6 +77,7 @@ struct TestWiFi {
     int status() { return connected ? WL_CONNECTED : 0; }
     uint8_t* BSSID() { return bssid; }
     int channel() { return 1; }
+    TestAddress localIP() { return {}; }
     void disconnect(bool) { connected = false; }
 };
 extern TestWiFi WiFi;
